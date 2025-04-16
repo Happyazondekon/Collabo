@@ -14,7 +14,7 @@ final List<String> coupleWords = [
   "beauté",
   "Oumm",
   "bel homme",
-  "Merci pour l'intérêt"
+  "Merci pour l'intérêt",
   "Great",
   "Shouwor",
   "rentrer",
@@ -31,7 +31,7 @@ final List<String> coupleWords = [
   "j'arrive",
   "Jtp babe",
   "fâché",
-  "Koudido ",
+  "Koudido",
   "Djabi",
   "atagan",
   "champions",

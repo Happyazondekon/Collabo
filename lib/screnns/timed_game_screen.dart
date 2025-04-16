@@ -1,60 +1,80 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:confetti/confetti.dart';
 import 'dart:math';
 import '../data/couple_words.dart';
-import 'result_screen.dart';
-import '../models/game_difficulty.dart';
 
-class GameScreen extends StatefulWidget {
+class TimedGameScreen extends StatefulWidget {
   final String player1Color;
   final String player2Color;
-  final GameDifficulty difficulty;
-  final List<String>? customWords;
 
-  const GameScreen({
+  const TimedGameScreen({
     super.key,
     required this.player1Color,
     required this.player2Color,
-    required this.difficulty,
-    this.customWords,
   });
 
   @override
-  _GameScreenState createState() => _GameScreenState();
+  _TimedGameScreenState createState() => _TimedGameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> {
+class _TimedGameScreenState extends State<TimedGameScreen> {
   late ConfettiController _confettiController;
-  int player1Score = 0;
-  int player2Score = 0;
+  int score = 0;
   String currentWord = "";
   String hiddenWord = "";
-  bool isPlayer1Turn = true;
   final TextEditingController _guessController = TextEditingController();
   final List<String> usedWords = [];
   final Random _random = Random();
   bool _showHint = false;
 
+  // Timer variables
+  int _timeLeft = 60; // 60 seconds
+  late Timer _timer;
+  bool _isGameActive = false;
+
   @override
   void initState() {
     super.initState();
     _confettiController = ConfettiController(duration: const Duration(seconds: 3));
-    _pickNewWord();
+    _startGame();
   }
 
-  @override
-  void dispose() {
-    _confettiController.dispose();
-    _guessController.dispose();
-    super.dispose();
+  void _startGame() {
+    _pickNewWord();
+    _startTimer();
+    setState(() {
+      _isGameActive = true;
+      score = 0;
+    });
+  }
+
+  void _startTimer() {
+    _timeLeft = 60;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        if (_timeLeft > 0) {
+          _timeLeft--;
+        } else {
+          _endGame();
+        }
+      });
+    });
+  }
+
+  void _endGame() {
+    _timer.cancel();
+    setState(() {
+      _isGameActive = false;
+    });
+    _showGameOverDialog();
   }
 
   void _pickNewWord() {
-    List<String> sourceWords = widget.customWords ?? coupleWords;
-    List<String> availableWords = sourceWords.where((word) => !usedWords.contains(word)).toList();
+    List<String> availableWords = coupleWords.where((word) => !usedWords.contains(word)).toList();
 
     if (availableWords.isEmpty) {
-      availableWords = sourceWords;
+      availableWords = coupleWords;
       usedWords.clear();
     }
 
@@ -70,6 +90,7 @@ class _GameScreenState extends State<GameScreen> {
   String _generateHiddenWord(String word) {
     if (word.length <= 3) return word[0] + "_" * (word.length - 1);
 
+    // Show 30% of letters randomly
     final revealedIndices = <int>[];
     final lettersToShow = max(1, (word.length * 0.3).floor());
 
@@ -88,42 +109,18 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _checkGuess() {
-    if (_guessController.text.trim().isEmpty) return;
+    if (!_isGameActive || _guessController.text.trim().isEmpty) return;
 
     if (_guessController.text.trim().toLowerCase() == currentWord.toLowerCase()) {
       _confettiController.play();
-
       setState(() {
-        if (isPlayer1Turn) {
-          player1Score += 5;
-        } else {
-          player2Score += 5;
-        }
+        score += 5;
       });
-
-      Future.delayed(const Duration(seconds: 2), () {
-        if (player1Score >= 19 || player2Score >= 19) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ResultScreen(
-                winner: player1Score >= 19 ? 1 : 2,
-                player1Color: widget.player1Color,
-                player2Color: widget.player2Color,
-              ),
-            ),
-          );
-        } else {
-          setState(() {
-            isPlayer1Turn = !isPlayer1Turn;
-          });
-          _pickNewWord();
-        }
-      });
+      _pickNewWord();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Essaie encore !'),
+          content: const Text('Essayez encore !'),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
@@ -133,25 +130,84 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  void _showGameOverDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          title: const Text(
+            '⏱️ Temps écoulé !',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 24,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'La partie est terminée',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 15),
+              Text(
+                'Score final: $score',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Retour à l\'accueil'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _startGame();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.pink[300],
+              ),
+              child: const Text('Rejouer'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Color _getTeamColor() {
+    // Mélange des couleurs des deux joueurs
+    final color1 = _getPlayerColor(1);
+    final color2 = _getPlayerColor(2);
+
+    return Color.lerp(color1, color2, 0.5)!;
+  }
+
   Color _getPlayerColor(int playerNumber) {
     final color = playerNumber == 1 ? widget.player1Color : widget.player2Color;
     switch (color) {
-      case 'Rouge':
-        return Colors.red[400]!;
-      case 'Bleu':
-        return Colors.blue[400]!;
-      case 'Rose':
-        return Colors.pink[300]!;
-      case 'Vert':
-        return Colors.green[400]!;
-      case 'Violet':
-        return Colors.purple[400]!;
-      case 'Orange':
-        return Colors.orange[400]!;
-      case 'Jaune':
-        return Colors.yellow[600]!;
-      default:
-        return Colors.grey;
+      case 'Rouge': return Colors.red[400]!;
+      case 'Bleu': return Colors.blue[400]!;
+      case 'Rose': return Colors.pink[300]!;
+      case 'Vert': return Colors.green[400]!;
+      case 'Violet': return Colors.purple[400]!;
+      case 'Orange': return Colors.orange[400]!;
+      case 'Jaune': return Colors.yellow[600]!;
+      default: return Colors.grey;
     }
   }
 
@@ -163,11 +219,11 @@ class _GameScreenState extends State<GameScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentPlayerColor = _getPlayerColor(isPlayer1Turn ? 1 : 2);
+    final teamColor = _getTeamColor();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Compétitif'),
+        title: const Text('Contre la montre'),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -203,52 +259,77 @@ class _GameScreenState extends State<GameScreen> {
             padding: const EdgeInsets.all(20.0),
             child: Column(
               children: [
-                // Score Board
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.2),
-                        spreadRadius: 2,
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
+                // Timer and Score
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Timer
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: _timeLeft > 10 ? Colors.white : Colors.red[50],
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.2),
+                            spreadRadius: 2,
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildPlayerScore(1),
-                      Container(
-                        width: 1,
-                        height: 40,
-                        color: Colors.grey[300],
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.timer,
+                            color: _timeLeft > 10 ? Colors.blue[400] : Colors.red[400],
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            '$_timeLeft s',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: _timeLeft > 10 ? Colors.blue[700] : Colors.red[700],
+                            ),
+                          ),
+                        ],
                       ),
-                      _buildPlayerScore(2),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 30),
-
-                // Current Turn Indicator
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: currentPlayerColor.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Tour du Joueur ${isPlayer1Turn ? 1 : 2}',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: currentPlayerColor,
                     ),
-                  ),
+
+                    // Score
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.2),
+                            spreadRadius: 2,
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.star, color: Colors.amber[400]),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Score: $score',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: teamColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+
                 const SizedBox(height: 30),
 
                 // Word Card
@@ -264,8 +345,8 @@ class _GameScreenState extends State<GameScreen> {
                       borderRadius: BorderRadius.circular(15),
                       gradient: LinearGradient(
                         colors: [
-                          currentPlayerColor.withOpacity(0.1),
-                          currentPlayerColor.withOpacity(0.05),
+                          teamColor.withOpacity(0.1),
+                          teamColor.withOpacity(0.05),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -303,23 +384,24 @@ class _GameScreenState extends State<GameScreen> {
                 // Input Field
                 TextField(
                   controller: _guessController,
+                  enabled: _isGameActive,
                   decoration: InputDecoration(
                     labelText: 'Votre réponse',
                     labelStyle: TextStyle(color: Colors.grey[600]),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: currentPlayerColor),
+                      borderSide: BorderSide(color: teamColor),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: currentPlayerColor, width: 2),
+                      borderSide: BorderSide(color: teamColor, width: 2),
                     ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _showHint ? Icons.visibility_off : Icons.visibility,
-                        color: currentPlayerColor,
+                        color: teamColor,
                       ),
-                      onPressed: _toggleHint,
+                      onPressed: _isGameActive ? _toggleHint : null,
                     ),
                   ),
                   onSubmitted: (_) => _checkGuess(),
@@ -332,9 +414,9 @@ class _GameScreenState extends State<GameScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     ElevatedButton(
-                      onPressed: _checkGuess,
+                      onPressed: _isGameActive ? _checkGuess : null,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: currentPlayerColor,
+                        backgroundColor: teamColor,
                         padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -346,22 +428,21 @@ class _GameScreenState extends State<GameScreen> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: _isGameActive
+                          ? () {
                         setState(() {
                           hiddenWord = currentWord;
                         });
-                        Future.delayed(const Duration(seconds: 3), () {
+                        Future.delayed(const Duration(seconds: 1), () {
                           _pickNewWord();
-                          setState(() {
-                            isPlayer1Turn = !isPlayer1Turn;
-                          });
                         });
-                      },
+                      }
+                          : null,
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
                       ),
                       child: Text(
-                        'Révéler',
+                        'Passer',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.grey[600],
@@ -393,35 +474,11 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildPlayerScore(int playerNumber) {
-    final isActive = (playerNumber == 1 && isPlayer1Turn) || (playerNumber == 2 && !isPlayer1Turn);
-
-    return Column(
-      children: [
-        Text(
-          'Joueur $playerNumber',
-          style: TextStyle(
-            color: _getPlayerColor(playerNumber),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 5),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: isActive ? _getPlayerColor(playerNumber).withOpacity(0.1) : null,
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            playerNumber == 1 ? '$player1Score' : '$player2Score',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: _getPlayerColor(playerNumber),
-            ),
-          ),
-        ),
-      ],
-    );
+  @override
+  void dispose() {
+    _confettiController.dispose();
+    _guessController.dispose();
+    if (_isGameActive) _timer.cancel();
+    super.dispose();
   }
 }
