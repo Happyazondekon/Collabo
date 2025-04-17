@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import '../models/event_model.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -21,7 +23,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  final Map<DateTime, List<EventModel>> _events = {};
+  Map<DateTime, List<EventModel>> _events = {};
   final TextEditingController _eventTitleController = TextEditingController();
   final TextEditingController _eventDescriptionController = TextEditingController();
 
@@ -29,15 +31,54 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    _loadEvents();
+  }
 
-    // Ajouter quelques événements d'exemple
-    final today = DateTime.now();
-    _events[DateTime(today.year, today.month, today.day)] = [
-      EventModel(
-        title: 'Notre premier rendez-vous',
-        description: 'Nous sommes allés au cinéma et avons mangé une glace',
-      ),
-    ];
+  String _dateTimeToKey(DateTime date) {
+    return "${date.year}-${date.month}-${date.day}";
+  }
+
+  DateTime _keyToDateTime(String key) {
+    final parts = key.split('-');
+    return DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
+  }
+
+  Future<void> _loadEvents() async {
+    final prefs = await SharedPreferences.getInstance();
+    final eventsJson = prefs.getString('calendar_events');
+
+    if (eventsJson != null) {
+      final Map<String, dynamic> eventsMap = json.decode(eventsJson);
+      final loadedEvents = <DateTime, List<EventModel>>{};
+
+      eventsMap.forEach((key, value) {
+        final date = _keyToDateTime(key);
+        final eventsList = (value as List)
+            .map((item) => EventModel.fromJson(item))
+            .toList();
+        loadedEvents[date] = eventsList;
+      });
+
+      setState(() {
+        _events = loadedEvents;
+      });
+    }
+  }
+
+  Future<void> _saveEvents() async {
+    final prefs = await SharedPreferences.getInstance();
+    final Map<String, List<Map<String, dynamic>>> eventsMap = {};
+
+    _events.forEach((date, events) {
+      final key = _dateTimeToKey(date);
+      eventsMap[key] = events.map((e) => e.toJson()).toList();
+    });
+
+    await prefs.setString('calendar_events', json.encode(eventsMap));
   }
 
   List<EventModel> _getEventsForDay(DateTime day) {
@@ -82,11 +123,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         } else {
           _events[normalizedDay]!.add(newEvent);
         }
+        _saveEvents();
       });
 
       _eventTitleController.clear();
       _eventDescriptionController.clear();
-
       Navigator.pop(context);
     }
   }
@@ -205,152 +246,133 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final teamColor = _getTeamColor();
-    final mixedColorScheme = ColorScheme.fromSeed(
-      seedColor: teamColor,
-      brightness: Theme.of(context).brightness,
-    );
+    final player1Color = _getPlayerColor(1);
+    final player2Color = _getPlayerColor(2);
 
-    return Theme(
-      data: Theme.of(context).copyWith(
-        colorScheme: mixedColorScheme,
-        cardTheme: CardTheme(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Notre Calendrier'),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-      ),
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Notre Calendrier'),
-          centerTitle: true,
-          flexibleSpace: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  _getPlayerColor(1),
-                  _getPlayerColor(2),
-                ],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-            ),
-          ),
-          elevation: 0,
-          iconTheme: const IconThemeData(color: Colors.white),
-        ),
-        body: Container(
+        flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.pink[50]!,
-                Colors.purple[50]!,
-              ],
+              colors: [player1Color, player2Color],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
             ),
           ),
-          child: Column(
-            children: [
-              Card(
-                margin: const EdgeInsets.all(16),
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: TableCalendar(
-                  firstDay: DateTime.utc(2020, 1, 1),
-                  lastDay: DateTime.utc(2030, 12, 31),
-                  focusedDay: _focusedDay,
-                  calendarFormat: _calendarFormat,
-                  selectedDayPredicate: (day) {
-                    return isSameDay(_selectedDay, day);
-                  },
-                  eventLoader: _getEventsForDay,
-                  onDaySelected: (selectedDay, focusedDay) {
-                    setState(() {
-                      _selectedDay = selectedDay;
-                      _focusedDay = focusedDay;
-                    });
-                  },
-                  onFormatChanged: (format) {
-                    setState(() {
-                      _calendarFormat = format;
-                    });
-                  },
-                  onPageChanged: (focusedDay) {
-                    _focusedDay = focusedDay;
-                  },
-                  calendarStyle: CalendarStyle(
-                    markerDecoration: BoxDecoration(
-                      color: teamColor,
-                      shape: BoxShape.circle,
-                    ),
-                    selectedDecoration: BoxDecoration(
-                      color: teamColor,
-                      shape: BoxShape.circle,
-                    ),
-                    todayDecoration: BoxDecoration(
-                      color: teamColor.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    markersAutoAligned: true,
-                    markerSize: 6,
-                    markerMargin: const EdgeInsets.symmetric(horizontal: 1),
-                  ),
-                  headerStyle: HeaderStyle(
-                    titleCentered: true,
-                    titleTextStyle: TextStyle(
-                      color: Colors.purple[800],
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                    formatButtonVisible: false,
-                    leftChevronIcon: Icon(
-                      Icons.chevron_left,
-                      color: teamColor,
-                    ),
-                    rightChevronIcon: Icon(
-                      Icons.chevron_right,
-                      color: teamColor,
-                    ),
-                  ),
-                  daysOfWeekStyle: DaysOfWeekStyle(
-                    weekdayStyle: TextStyle(
-                      color: Colors.purple[800],
-                      fontWeight: FontWeight.bold,
-                    ),
-                    weekendStyle: TextStyle(
-                      color: Colors.pink[300],
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Souvenirs du ${_selectedDay?.day}/${_selectedDay?.month}/${_selectedDay?.year}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.purple[800],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: _buildEventList(),
-              ),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.pink[50]!,
+              Colors.purple[50]!,
             ],
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: _showAddEventDialog,
-          backgroundColor: teamColor,
-          child: const Icon(Icons.add, color: Colors.white),
+        child: Column(
+          children: [
+            Card(
+              margin: const EdgeInsets.all(16),
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: TableCalendar(
+                firstDay: DateTime.utc(2020, 1, 1),
+                lastDay: DateTime.utc(2030, 12, 31),
+                focusedDay: _focusedDay,
+                calendarFormat: _calendarFormat,
+                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                eventLoader: _getEventsForDay,
+                onDaySelected: (selectedDay, focusedDay) {
+                  setState(() {
+                    _selectedDay = selectedDay;
+                    _focusedDay = focusedDay;
+                  });
+                },
+                onFormatChanged: (format) {
+                  setState(() {
+                    _calendarFormat = format;
+                  });
+                },
+                onPageChanged: (focusedDay) {
+                  _focusedDay = focusedDay;
+                },
+                calendarStyle: CalendarStyle(
+                  markerDecoration: BoxDecoration(
+                    color: teamColor,
+                    shape: BoxShape.circle,
+                  ),
+                  selectedDecoration: BoxDecoration(
+                    color: teamColor,
+                    shape: BoxShape.circle,
+                  ),
+                  todayDecoration: BoxDecoration(
+                    color: teamColor.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  markersAutoAligned: true,
+                  markerSize: 6,
+                  markerMargin: const EdgeInsets.symmetric(horizontal: 1),
+                ),
+                headerStyle: HeaderStyle(
+                  titleCentered: true,
+                  titleTextStyle: TextStyle(
+                    color: Colors.purple[800],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                  formatButtonVisible: false,
+                  leftChevronIcon: Icon(Icons.chevron_left, color: teamColor),
+                  rightChevronIcon: Icon(Icons.chevron_right, color: teamColor),
+                ),
+                daysOfWeekStyle: DaysOfWeekStyle(
+                  weekdayStyle: TextStyle(
+                    color: Colors.purple[800],
+                    fontWeight: FontWeight.bold,
+                  ),
+                  weekendStyle: TextStyle(
+                    color: Colors.pink[300],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _selectedDay != null
+                    ? 'Souvenirs du ${_selectedDay!.day}/${_selectedDay!.month}/${_selectedDay!.year}'
+                    : 'Sélectionnez une date',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple[800],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: _buildEventList(),
+            ),
+          ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddEventDialog,
+        backgroundColor: teamColor,
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
@@ -410,7 +432,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 colors: [
                   Colors.white,
                   Colors.white,
-                  _getTeamColor().withOpacity(0.1),
+                  teamColor.withOpacity(0.1),
                 ],
               ),
               borderRadius: BorderRadius.circular(15),
@@ -453,6 +475,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     if (_events[normalizedDay]!.isEmpty) {
                       _events.remove(normalizedDay);
                     }
+                    _saveEvents();
                   });
                 },
               ),
