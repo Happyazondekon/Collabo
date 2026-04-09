@@ -1,0 +1,106 @@
+{
+  "project_info": {
+    "project_number": "915936525536",
+    "project_id": "happygoal-7b607",
+    "storage_bucket": "happygoal-7b607.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915936525536:android:bf3e3988bd479322c5e485",
+        "android_client_info": {
+          "package_name": "com.example.happygoal"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlEYIST0uf1ceJgFmVie73H4X2Wmvjb-M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915936525536:android:fa03ead314fc2f2fc5e485",
+        "android_client_info": {
+          "package_name": "com.heyhappy.collabo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "915936525536-sv7tcsu3ujep93fuild20aiag6rrvv8c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.heyhappy.collabo",
+            "certificate_hash": "6345a3087dcfe455751f607afa03f8fb5adb1777"
+          }
+        },
+        {
+          "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlEYIST0uf1ceJgFmVie73H4X2Wmvjb-M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:915936525536:android:742887f6dd913af3c5e485",
+        "android_client_info": {
+          "package_name": "com.heyhappy.happygoal"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDlEYIST0uf1ceJgFmVie73H4X2Wmvjb-M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "915936525536-dm6q9m7q0t54kq582bggv273830u9paf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      },
+      "admob_app_id": "ca-app-pub-2066223330804112~6570064817"
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,23 +1,47 @@
 import 'package:flutter/material.dart';
-import 'screnns/home_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import 'models/user_model.dart';
+import 'services/auth_service.dart';
+import 'auth/auth_wrapper.dart';
+import 'utils/app_theme.dart';
 
-void main() {
-  runApp(const CoupleGameApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+    ),
+  );
+
+  await Firebase.initializeApp();
+
+  runApp(const CollaboApp());
 }
 
-class CoupleGameApp extends StatelessWidget {
-  const CoupleGameApp({super.key});
+class CollaboApp extends StatelessWidget {
+  const CollaboApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Collabo',
-      theme: ThemeData(
-        primarySwatch: Colors.pink,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+    return MultiProvider(
+      providers: [
+        Provider<AuthService>(create: (_) => AuthService()),
+        StreamProvider<AppUser?>(
+          create: (context) => context.read<AuthService>().userStream,
+          initialData: null,
+        ),
+      ],
+      child: MaterialApp(
+        title: 'Collabo',
+        theme: AppTheme.theme,
+        home: const AuthWrapper(),
+        debugShowCheckedModeBanner: false,
       ),
-      home: const HomeScreen(),
-      debugShowCheckedModeBanner: false,
     );
   }
 }

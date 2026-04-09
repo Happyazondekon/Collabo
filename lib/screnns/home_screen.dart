@@ -1,318 +1,881 @@
-import 'dart:ui';
-
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/user_model.dart';
+import '../services/couple_service.dart';
+import '../services/chat_service.dart';
+import '../utils/app_theme.dart';
 import 'game_modes_screen.dart';
 import 'calendar_screen.dart';
+import 'gallery_screen.dart';
+import 'history_screen.dart';
+import 'notre_histoire_screen.dart';
+import 'love_chat_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  _HomeScreenState createState() => _HomeScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
-  String? player1Color;
-  String? player2Color;
-  late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentNavIndex = 0;
+  int _chatUnreadCount = 0;
+  int _pendingInviteCount = 0;
 
-  final List<Map<String, dynamic>> colors = [
-    {'name': 'Rouge', 'color': Colors.red[400]!},
-    {'name': 'Bleu', 'color': Colors.blue[400]!},
-    {'name': 'Rose', 'color': Colors.pink[300]!},
-    {'name': 'Vert', 'color': Colors.green[400]!},
-    {'name': 'Violet', 'color': Colors.purple[400]!},
-    {'name': 'Orange', 'color': Colors.orange[400]!},
-    {'name': 'Jaune', 'color': Colors.yellow[600]!},
+  StreamSubscription<UserProfile?>? _profileSub;
+  StreamSubscription<int>? _chatUnreadSub;
+  StreamSubscription<List<CoupleRequest>>? _inviteSub;
+
+  // Color theme state — shown in sheet before game
+  Color _primaryColor = const Color(0xFFD0216E);
+  Color _accentColor = const Color(0xFF7C3AED);
+
+  static const _colorOptions = [
+    {'name': 'Rose',   'color': Color(0xFFD0216E)},
+    {'name': 'Rouge',  'color': Colors.red},
+    {'name': 'Violet', 'color': Color(0xFF7C3AED)},
+    {'name': 'Bleu',   'color': Colors.blue},
+    {'name': 'Vert',   'color': Color(0xFF10B981)},
+    {'name': 'Orange', 'color': Colors.orange},
+    {'name': 'Corail', 'color': Color(0xFFFF6B6B)},
   ];
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
-    );
-    _animationController.repeat(reverse: true);
+    CoupleService.ensureProfileExists();
+    _inviteSub = CoupleService.pendingInvitesStream().listen((list) {
+      if (mounted) setState(() => _pendingInviteCount = list.length);
+    });
+    _profileSub = CoupleService.myProfileStream().listen((profile) {
+      _chatUnreadSub?.cancel();
+      if (profile?.coupleId != null) {
+        _chatUnreadSub =
+            ChatService.unreadCountStream(profile!.coupleId!).listen((n) {
+          if (mounted) setState(() => _chatUnreadCount = n);
+        });
+      } else {
+        if (mounted) setState(() => _chatUnreadCount = 0);
+      }
+    });
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _profileSub?.cancel();
+    _chatUnreadSub?.cancel();
+    _inviteSub?.cancel();
     super.dispose();
+  }
+
+  void _navigateToTab(int index) => setState(() => _currentNavIndex = index);
+
+  /// Opens a bottom sheet for color selection, then pushes GameModesScreen.
+  void _startGame(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      builder: (_) => _ColorPickerSheet(
+        primaryColor: _primaryColor,
+        accentColor: _accentColor,
+        colorOptions: _colorOptions,
+        onPrimaryChanged: (c) => setState(() => _primaryColor = c),
+        onAccentChanged: (c) => setState(() => _accentColor = c),
+        onPlay: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => GameModesScreen(
+                primaryColor: _primaryColor,
+                accentColor: _accentColor,
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      _HomeContent(
+        onNavigate: _navigateToTab,
+        onPlay: () => _startGame(context),
+      ),
+      const _ChatTabWrapper(),
+      GameModesScreen(primaryColor: _primaryColor, accentColor: _accentColor),
+      const ProfileScreen(),
+    ];
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.pink[50]!,
-              Colors.purple[50]!,
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          Expanded(child: pages[_currentNavIndex]),
+          _BottomNav(
+            currentIndex: _currentNavIndex,
+            onTap: _navigateToTab,
+            badges: [0, _chatUnreadCount, 0, _pendingInviteCount],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Color picker bottom sheet
+// ─────────────────────────────────────────────
+
+class _ColorPickerSheet extends StatefulWidget {
+  final Color primaryColor;
+  final Color accentColor;
+  final List<Map<String, dynamic>> colorOptions;
+  final ValueChanged<Color> onPrimaryChanged;
+  final ValueChanged<Color> onAccentChanged;
+  final VoidCallback onPlay;
+
+  const _ColorPickerSheet({
+    required this.primaryColor,
+    required this.accentColor,
+    required this.colorOptions,
+    required this.onPrimaryChanged,
+    required this.onAccentChanged,
+    required this.onPlay,
+  });
+
+  @override
+  State<_ColorPickerSheet> createState() => _ColorPickerSheetState();
+}
+
+class _ColorPickerSheetState extends State<_ColorPickerSheet> {
+  late Color _primary;
+  late Color _accent;
+
+  @override
+  void initState() {
+    super.initState();
+    _primary = widget.primaryColor;
+    _accent = widget.accentColor;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          24, 16, 24, MediaQuery.of(context).viewInsets.bottom + 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // handle
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 24),
+          // preview swatch
+          Container(
+            height: 6,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                  colors: [_primary, _accent],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text('Personnalisez votre partie',
+              style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark)),
+          const SizedBox(height: 4),
+          const Text('Choisissez vos couleurs avant de commencer',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: AppColors.textMedium)),
+          const SizedBox(height: 24),
+
+          _ColorRow(
+            label: 'Couleur principale',
+            selected: _primary,
+            options: widget.colorOptions,
+            onChanged: (c) {
+              setState(() => _primary = c);
+              widget.onPrimaryChanged(c);
+            },
+          ),
+          const SizedBox(height: 18),
+          _ColorRow(
+            label: 'Couleur accent',
+            selected: _accent,
+            options: widget.colorOptions,
+            onChanged: (c) {
+              setState(() => _accent = c);
+              widget.onAccentChanged(c);
+            },
+          ),
+          const SizedBox(height: 28),
+
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: widget.onPlay,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(32)),
+                elevation: 0,
+              ),
+              child: const Text('Choisir un mode de jeu',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ColorRow extends StatelessWidget {
+  final String label;
+  final Color selected;
+  final List<Map<String, dynamic>> options;
+  final ValueChanged<Color> onChanged;
+
+  const _ColorRow({
+    required this.label,
+    required this.selected,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textMedium,
+                letterSpacing: 0.5)),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: options.map((opt) {
+            final color = opt['color'] as Color;
+            final isSelected = color.toARGB32() == selected.toARGB32();
+            return GestureDetector(
+              onTap: () => onChanged(color),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: isSelected ? 38 : 32,
+                height: isSelected ? 38 : 32,
+                decoration: BoxDecoration(
+                  color: color,
+                  shape: BoxShape.circle,
+                  border: isSelected
+                      ? Border.all(color: Colors.white, width: 2.5)
+                      : null,
+                  boxShadow: isSelected
+                      ? [
+                          BoxShadow(
+                              color: color.withValues(alpha: 0.5),
+                              blurRadius: 8,
+                              spreadRadius: 1)
+                        ]
+                      : null,
+                ),
+                child: isSelected
+                    ? const Icon(Icons.check_rounded,
+                        color: Colors.white, size: 16)
+                    : null,
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Home Content
+// ─────────────────────────────────────────────
+
+class _HomeContent extends StatelessWidget {
+  final ValueChanged<int> onNavigate;
+  final VoidCallback onPlay;
+
+  const _HomeContent({required this.onNavigate, required this.onPlay});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = context.watch<AppUser?>();
+    return StreamBuilder<UserProfile?>(
+      stream: CoupleService.myProfileStream(),
+      builder: (ctx, snap) {
+        final profile = snap.data;
+        final firstName = profile?.pseudo?.isNotEmpty == true
+            ? profile!.pseudo!
+            : user?.displayName?.split(' ').first ?? 'vous';
+        final avatarUrl = profile?.avatarUrl ?? user?.photoURL;
+        final initial = (profile?.pseudo?.isNotEmpty == true
+                ? profile!.pseudo![0]
+                : user?.displayName?.isNotEmpty == true
+                    ? user!.displayName![0]
+                    : 'C')
+            .toUpperCase();
+        final coupled = profile?.partnerUid != null;
+
+        return CustomScrollView(
+      slivers: [
+        // ── App Bar ──────────────────────────────────────────────
+        SliverAppBar(
+          backgroundColor: AppColors.background,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          pinned: true,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.favorite_rounded,
+                    color: AppColors.primary, size: 16),
+              ),
+              const SizedBox(width: 8),
+              const Text('Collabo',
+                  style: TextStyle(
+                      color: AppColors.textDark,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800)),
             ],
           ),
+          centerTitle: true,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: GestureDetector(
+                onTap: () => onNavigate(3),
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.primarySoft,
+                  backgroundImage:
+                      avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                  child: avatarUrl == null
+                      ? Text(
+                          initial,
+                          style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14))
+                      : null,
+                ),
+              ),
+            ),
+          ],
         ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
+
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Greeting ────────────────────────────────────
+                _GreetingSection(firstName: firstName, coupled: coupled),
+                const SizedBox(height: 24),
+
+                // ── Play CTA ─────────────────────────────────────
+                _PlayButton(onPlay: onPlay),
+                const SizedBox(height: 28),
+
+                // ── Section title ────────────────────────────────
+                const Text('Votre espace',
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textDark)),
+                const SizedBox(height: 14),
+
+                // ── Feature grid ─────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: _FeatureCard(
+                        icon: Icons.auto_stories_rounded,
+                        iconColor: AppColors.accent,
+                        bgColor: AppColors.accentLight,
+                        title: 'Notre Histoire',
+                        subtitle: 'Anecdotes & souvenirs',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const NotreHistoireScreen()),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _FeatureCard(
+                        icon: Icons.photo_library_rounded,
+                        iconColor: const Color(0xFF0EA5E9),
+                        bgColor: const Color(0xFFE0F2FE),
+                        title: 'Galerie',
+                        subtitle: 'Photos clés',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => GalleryScreen(coupleId: profile?.coupleId)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _FeatureCard(
+                        icon: Icons.calendar_month_rounded,
+                        iconColor: const Color(0xFF7C3AED),
+                        bgColor: const Color(0xFFEDE9FE),
+                        title: 'Calendrier',
+                        subtitle: 'Vos moments',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => CalendarScreen(coupleId: profile?.coupleId)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: _FeatureCard(
+                        icon: Icons.history_rounded,
+                        iconColor: const Color(0xFF10B981),
+                        bgColor: const Color(0xFFD1FAE5),
+                        title: 'Historique',
+                        subtitle: 'Vos scores & résultats',
+                        onTap: () => Navigator.push(context,
+                            MaterialPageRoute(
+                                builder: (_) => const HistoryScreen())),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Greeting section
+// ─────────────────────────────────────────────
+
+class _GreetingSection extends StatelessWidget {
+  final String firstName;
+  final bool coupled;
+
+  const _GreetingSection({required this.firstName, required this.coupled});
+
+  @override
+  Widget build(BuildContext context) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Bonjour, $firstName 👋',
+                          style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          coupled
+                              ? 'Prêts à jouer ensemble ?'
+                              : 'Invitez votre partenaire pour jouer',
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.textMedium),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(Icons.favorite_rounded,
+                        color: AppColors.primary, size: 28),
+                  ),
+                ],
+              ),
+              if (!coupled) ...[
+                const SizedBox(height: 14),
+                GestureDetector(
+                  onTap: () {
+                    // Navigate to profile tab to link account
+                    final homeState = context
+                        .findAncestorStateOfType<_HomeScreenState>();
+                    homeState?._navigateToTab(3);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 10, horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.person_add_rounded,
+                            color: AppColors.primary, size: 16),
+                        SizedBox(width: 8),
+                        Text('Lier mon compte partenaire',
+                            style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13)),
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_forward_ios_rounded,
+                            color: AppColors.primary, size: 12),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Play CTA button
+// ─────────────────────────────────────────────
+
+class _PlayButton extends StatelessWidget {
+  final VoidCallback onPlay;
+  const _PlayButton({required this.onPlay});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPlay,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 28),
+        decoration: BoxDecoration(
+          color: AppColors.primary,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.35),
+                blurRadius: 20,
+                offset: const Offset(0, 8)),
+          ],
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.play_circle_filled_rounded,
+                color: Colors.white, size: 36),
+            SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Jouer',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800)),
+                Text('Une partie ensemble',
+                    style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13)),
+              ],
+            ),
+            Spacer(),
+            Icon(Icons.arrow_forward_ios_rounded,
+                color: Colors.white70, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Feature card
+// ─────────────────────────────────────────────
+
+class _FeatureCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color bgColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _FeatureCard({
+    required this.icon,
+    required this.iconColor,
+    required this.bgColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                  color: bgColor, borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: iconColor, size: 22),
+            ),
+            const SizedBox(height: 12),
+            Text(title,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: AppColors.textDark)),
+            const SizedBox(height: 2),
+            Text(subtitle,
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textMedium)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Bottom Navigation
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// Chat tab wrapper (stream-aware)
+// ─────────────────────────────────────────────
+
+class _ChatTabWrapper extends StatelessWidget {
+  const _ChatTabWrapper();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<UserProfile?>(
+      stream: CoupleService.myProfileStream(),
+      builder: (ctx, snap) {
+        final profile = snap.data;
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (profile?.coupleId == null) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Animated Title and Icon
-                  ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: Column(
-                      children: [
-                        const Icon(Icons.favorite, color: Colors.pink, size: 60),
-                        const SizedBox(height: 15),
-                        Text(
-                          'Collabo - Notre Histoire',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.pink[300],
-                            shadows: [
-                              Shadow(
-                                blurRadius: 4.0,
-                                color: Colors.pink[100]!,
-                                offset: const Offset(2.0, 2.0),
-                              ),
-                            ],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Créez des souvenirs ensemble',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[700],
-                            fontStyle: FontStyle.italic,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+                  Icon(Icons.favorite_border_rounded,
+                      size: 72,
+                      color: AppColors.primary.withValues(alpha: 0.35)),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Pas encore connectés',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textDark),
                   ),
-                  const SizedBox(height: 40),
-
-                  // Color selection card with glassmorphism
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      color: Colors.white.withOpacity(0.3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.pink[100]!.withOpacity(0.5),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Choisissez vos couleurs',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.purple[800],
-                                ),
-                              ),
-                              const SizedBox(height: 25),
-                              _buildColorDropdown(
-                                value: player1Color,
-                                hint: 'Couleur Joueur 1',
-                                onChanged: (value) {
-                                  setState(() => player1Color = value);
-                                },
-                              ),
-                              const SizedBox(height: 20),
-                              _buildColorDropdown(
-                                value: player2Color,
-                                hint: 'Couleur Joueur 2',
-                                onChanged: (value) {
-                                  setState(() => player2Color = value);
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // Action Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildGradientButton(
-                          enabled: player1Color != null && player2Color != null,
-                          text: 'Jouer',
-                          gradientColors: [Colors.pink[300]!, Colors.purple[400]!],
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => GameModesScreen(
-                                  player1Color: player1Color!,
-                                  player2Color: player2Color!,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: _buildGradientButton(
-                          enabled: player1Color != null && player2Color != null,
-                          text: 'Calendrier',
-                          gradientColors: [Colors.teal[400]!, Colors.blue[400]!],
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => CalendarScreen(
-                                  player1Color: player1Color!,
-                                  player2Color: player2Color!,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Liez-vous à votre partenaire\npour accéder au chat',
+                    textAlign: TextAlign.center,
+                    style:
+                        TextStyle(fontSize: 14, color: AppColors.textMedium),
                   ),
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGradientButton({
-    required bool enabled,
-    required String text,
-    required List<Color> gradientColors,
-    required VoidCallback onPressed,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        gradient: LinearGradient(
-          colors: enabled ? gradientColors : [Colors.grey[400]!, Colors.grey[500]!],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: enabled ? gradientColors.first.withOpacity(0.4) : Colors.grey,
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: enabled ? onPressed : null,
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildColorDropdown({
-    required String? value,
-    required String hint,
-    required Function(String?) onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.8),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.pink[100]!.withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: DropdownButtonFormField<String>(
-        value: value,
-        hint: Text(hint, style: TextStyle(color: Colors.grey[700])),
-        items: colors.map((colorData) {
-          return DropdownMenuItem<String>(
-            value: colorData['name'],
-            child: Row(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: colorData['color'],
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorData['color'].withOpacity(0.5),
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  colorData['name'],
-                  style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
           );
-        }).toList(),
-        onChanged: onChanged,
-        decoration: const InputDecoration(border: InputBorder.none, contentPadding: EdgeInsets.zero),
-        icon: Icon(Icons.arrow_drop_down, color: Colors.pink[300]),
-        dropdownColor: Colors.white.withOpacity(0.95),
-        style: TextStyle(fontSize: 16, color: Colors.grey[800]),
-        borderRadius: BorderRadius.circular(12),
+        }
+        return LoveChatScreen(
+          coupleId: profile!.coupleId!,
+          partnerUid: profile.partnerUid,
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Bottom navigation bar
+// ─────────────────────────────────────────────
+
+class _BottomNav extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+  final List<int> badges;
+
+  const _BottomNav({
+    required this.currentIndex,
+    required this.onTap,
+    this.badges = const [0, 0, 0, 0],
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      {'icon': Icons.home_rounded, 'label': 'ACCUEIL'},
+      {'icon': Icons.chat_bubble_rounded, 'label': 'CHAT'},
+      {'icon': Icons.extension_rounded, 'label': 'JEUX'},
+      {'icon': Icons.person_rounded, 'label': 'PROFIL'},
+    ];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 20,
+              offset: const Offset(0, -4))
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: List.generate(items.length, (i) {
+            final isActive = i == currentIndex;
+            final hasBadge =
+                !isActive && i < badges.length && badges[i] > 0;
+            return GestureDetector(
+              onTap: () => onTap(i),
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                padding: EdgeInsets.symmetric(
+                    horizontal: isActive ? 18 : 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isActive ? AppColors.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(items[i]['icon'] as IconData,
+                            color: isActive
+                                ? Colors.white
+                                : AppColors.textMedium,
+                            size: 22),
+                        if (hasBadge)
+                          Positioned(
+                            top: -3,
+                            right: -5,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF3B30),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color: Colors.white, width: 1.5),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (isActive) ...[
+                      const SizedBox(width: 6),
+                      Text(items[i]['label'] as String,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
       ),
     );
   }

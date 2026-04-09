@@ -1,248 +1,327 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
 import 'dart:math';
+import '../utils/app_theme.dart';
 import 'home_screen.dart';
 
 class ResultScreen extends StatefulWidget {
   final int winner;
-  final String player1Color;
-  final String player2Color;
+  final int player1Score;
+  final int player2Score;
+  final int wordsGuessed;
+  final Color primaryColor;
+  final Color accentColor;
+  final String player1Name;
+  final String player2Name;
 
   const ResultScreen({
     super.key,
     required this.winner,
-    required this.player1Color,
-    required this.player2Color,
+    required this.player1Score,
+    required this.player2Score,
+    required this.wordsGuessed,
+    required this.primaryColor,
+    required this.accentColor,
+    this.player1Name = 'Joueur 1',
+    this.player2Name = 'Joueur 2',
   });
 
   @override
-  _ResultScreenState createState() => _ResultScreenState();
+  State<ResultScreen> createState() => _ResultScreenState();
 }
 
 class _ResultScreenState extends State<ResultScreen> {
-  late ConfettiController _confettiController;
-  late String _romanticSuggestion;
-  final List<String> _romanticSuggestions = [
-    "Envoyez un message vocal pour dire 'Je t'aime' dans la langue de l'autre",
-    "Partagez un screenshot de votre premier échange sur Telegram",
+  late ConfettiController _confetti;
+  late String _suggestion;
+
+  static const _suggestions = [
+    "Envoyez un message vocal pour dire « Je t'aime » dans la langue de l'autre",
+    "Partagez le screenshot de votre premier échange ensemble",
     "Racontez votre souvenir préféré de cette année",
-    "Faites un compliment inspiré de vos échanges (ex: 'Tu es ma plus belle surprise')",
-    "Écrivez une petite note sur ce que vous appréciez chez l'autre",
-    "Choisissez une chanson qui représente votre relation et dansez ensemble",
-    "Recréez votre premier rendez-vous",
+    "Faites un compliment inspiré de vos échanges — soyez créatifs !",
+    "Écrivez une note sur ce que vous appréciez chez l'autre",
+    "Choisissez une chanson qui représente votre relation et dansez",
+    "Recréez votre premier rendez-vous ce soir",
+    "Préparez une surprise pour demain, aussi petite soit-elle",
   ];
 
   @override
   void initState() {
     super.initState();
-    _confettiController = ConfettiController(duration: const Duration(seconds: 5));
-    _romanticSuggestion = _romanticSuggestions[Random().nextInt(_romanticSuggestions.length)];
-    _confettiController.play();
+    _confetti = ConfettiController(duration: const Duration(seconds: 4));
+    _suggestion = _suggestions[Random().nextInt(_suggestions.length)];
+    _confetti.play();
   }
 
   @override
   void dispose() {
-    _confettiController.dispose();
+    _confetti.dispose();
     super.dispose();
   }
 
-  Color _getPlayerColor(int playerNumber) {
-    final color = playerNumber == 1 ? widget.player1Color : widget.player2Color;
-    switch (color) {
-      case 'Rouge': return Colors.red[400]!;
-      case 'Bleu': return Colors.blue[400]!;
-      case 'Rose': return Colors.pink[300]!;
-      case 'Vert': return Colors.green[400]!;
-      case 'Violet': return Colors.purple[400]!;
-      case 'Orange': return Colors.orange[400]!;
-      case 'Jaune': return Colors.yellow[600]!;
-      default: return Colors.grey;
-    }
-  }
+  Color get _winnerColor =>
+      widget.winner == 1 ? widget.primaryColor : widget.accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final winnerColor = _getPlayerColor(widget.winner);
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFFfff5f5), Color(0xFFfef9ff)],
-              ),
+          // confetti
+          Align(
+            alignment: Alignment.topCenter,
+            child: ConfettiWidget(
+              confettiController: _confetti,
+              blastDirectionality: BlastDirectionality.explosive,
+              shouldLoop: false,
+              colors: [
+                AppColors.primary,
+                AppColors.accent,
+                Colors.amber,
+                Colors.orange,
+                Colors.pink
+              ],
+              numberOfParticles: 30,
             ),
           ),
-          Center(
+          SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Couronne du gagnant
-                  Icon(
-                    Icons.emoji_events,
-                    size: 60,
-                    color: winnerColor,
+                  const SizedBox(height: 24),
+                  // Trophy
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                          colors: [_winnerColor, widget.accentColor],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                            color: _winnerColor.withValues(alpha: 0.4),
+                            blurRadius: 24,
+                            offset: const Offset(0, 8))
+                      ],
+                    ),
+                    child: const Icon(Icons.emoji_events_rounded,
+                        color: Colors.white, size: 52),
                   ),
                   const SizedBox(height: 20),
-
-                  // Titre
+                  const Text('Félicitations !',
+                      style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textDark)),
+                  const SizedBox(height: 8),
                   Text(
-                    'Félicitations !',
+                    '${widget.winner == 1 ? widget.player1Name : widget.player2Name} remporte la partie',
                     style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: winnerColor,
+                        fontSize: 16,
+                        color: _winnerColor,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 28),
+                  // Score card
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: [
+                        BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.07),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4))
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _ScoreColumn(
+                          label: widget.player1Name,
+                          score: widget.player1Score,
+                          color: widget.primaryColor,
+                          isWinner: widget.winner == 1,
+                        ),
+                        Container(
+                            height: 60,
+                            width: 1,
+                            color: Colors.grey.shade100),
+                        _ScoreColumn(
+                          label: widget.player2Name,
+                          score: widget.player2Score,
+                          color: widget.accentColor,
+                          isWinner: widget.winner == 2,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 10),
-
-                  // Sous-titre
-                  Text(
-                    'Joueur ${widget.winner} a gagné',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
+                  const SizedBox(height: 12),
+                  // Words stat
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16)),
+                    child: Row(
+                      children: [
+                        Icon(Icons.text_fields_rounded,
+                            color: AppColors.accent, size: 22),
+                        const SizedBox(width: 10),
+                        Text(
+                            '${widget.wordsGuessed} mots devinés ensemble',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textDark)),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 40),
-
-                  // Carte de suggestion
-                  Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                  const SizedBox(height: 28),
+                  // Romantic suggestion
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
                           colors: [
-                            winnerColor.withOpacity(0.1),
-                            winnerColor.withOpacity(0.05),
+                            widget.primaryColor.withValues(alpha: 0.08),
+                            widget.accentColor.withValues(alpha: 0.08)
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                          color: widget.primaryColor.withValues(alpha: 0.2)),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.favorite_rounded,
+                                color: AppColors.primary, size: 18),
+                            SizedBox(width: 6),
+                            Text('Suggestion romantique',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                    color: AppColors.primary)),
                           ],
                         ),
-                      ),
-                      child: Column(
-                        children: [
-                          const Icon(
-                            Icons.favorite,
-                            color: Colors.pink,
-                            size: 30,
-                          ),
-                          const SizedBox(height: 15),
-                          const Text(
-                            'Suggestion romantique',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 15),
-                          Text(
-                            _romanticSuggestion,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontStyle: FontStyle.italic,
-                              height: 1.4,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _suggestion,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 15,
+                              color: AppColors.textDark,
+                              height: 1.5),
+                        ),
+                        const SizedBox(height: 14),
+                        TextButton(
+                          onPressed: () => setState(() =>
+                              _suggestion = _suggestions[
+                                  Random().nextInt(_suggestions.length)]),
+                          style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary),
+                          child: const Text('Autre idée',
+                              style: TextStyle(fontWeight: FontWeight.w600)),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 40),
-
-                  // Boutons d'action
+                  const SizedBox(height: 28),
+                  // Buttons
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _romanticSuggestion = _romanticSuggestions[
-                            Random().nextInt(_romanticSuggestions.length)];
-                          });
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: winnerColor,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            side: BorderSide(color: winnerColor),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: _winnerColor),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
+                          child: Text('Rejouer',
+                              style: TextStyle(
+                                  color: _winnerColor,
+                                  fontWeight: FontWeight.w700)),
                         ),
-                        child: const Text('Autre idée'),
                       ),
-                      const SizedBox(width: 20),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pushAndRemoveUntil(
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pushAndRemoveUntil(
                             context,
                             MaterialPageRoute(
-                                builder: (context) => const HomeScreen()),
-                                (route) => false,
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: winnerColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 25, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                                builder: (_) => const HomeScreen()),
+                            (_) => false,
                           ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _winnerColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            elevation: 0,
+                          ),
+                          child: const Text('Accueil',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
                         ),
-                        child: const Text('Nouvelle partie'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-
-                  // Message de fin
-                  Text(
-                    'Continuez à créer de beaux souvenirs ensemble',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
           ),
-
-          // Confettis
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: const [
-                Colors.pink,
-                Colors.red,
-                Colors.purple,
-                Colors.blue,
-                Colors.green,
-              ],
-            ),
-          ),
         ],
       ),
+    );
+  }
+}
+
+class _ScoreColumn extends StatelessWidget {
+  final String label;
+  final int score;
+  final Color color;
+  final bool isWinner;
+
+  const _ScoreColumn(
+      {required this.label,
+      required this.score,
+      required this.color,
+      required this.isWinner});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (isWinner)
+          Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 18),
+        Text(label,
+            style: TextStyle(
+                fontSize: 13,
+                color: color,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text('$score',
+            style: TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.w900,
+                color: color)),
+        const SizedBox(height: 2),
+        const Text('pts',
+            style: TextStyle(fontSize: 12, color: AppColors.textMedium)),
+      ],
     );
   }
 }

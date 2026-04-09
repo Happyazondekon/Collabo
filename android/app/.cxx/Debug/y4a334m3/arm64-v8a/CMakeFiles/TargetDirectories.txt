@@ -1,0 +1,2 @@
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/Debug/y4a334m3/arm64-v8a/CMakeFiles/edit_cache.dir
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/Debug/y4a334m3/arm64-v8a/CMakeFiles/rebuild_cache.dir

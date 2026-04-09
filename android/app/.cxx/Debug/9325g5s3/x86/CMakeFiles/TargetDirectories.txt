@@ -1,0 +1,2 @@
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/Debug/9325g5s3/x86/CMakeFiles/edit_cache.dir
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/Debug/9325g5s3/x86/CMakeFiles/rebuild_cache.dir

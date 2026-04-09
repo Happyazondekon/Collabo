@@ -1,484 +1,524 @@
-import 'package:flutter/material.dart';
-import 'dart:async';
+﻿import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
+import 'dart:async';
 import 'dart:math';
-import '../data/couple_words.dart';
+import '../Data/couple_words.dart';
+import '../models/game_session_model.dart';
+import '../services/local_storage_service.dart';
+import '../utils/app_theme.dart';
+import 'home_screen.dart';
 
 class TimedGameScreen extends StatefulWidget {
-  final String player1Color;
-  final String player2Color;
+  final Color primaryColor;
+  final Color accentColor;
+  final List<String>? customWords;
+  final int durationSeconds;
 
   const TimedGameScreen({
     super.key,
-    required this.player1Color,
-    required this.player2Color,
+    required this.primaryColor,
+    required this.accentColor,
+    this.customWords,
+    this.durationSeconds = 60,
   });
 
   @override
-  _TimedGameScreenState createState() => _TimedGameScreenState();
+  State<TimedGameScreen> createState() => _TimedGameScreenState();
 }
 
 class _TimedGameScreenState extends State<TimedGameScreen> {
-  late ConfettiController _confettiController;
-  int score = 0;
-  String currentWord = "";
-  String hiddenWord = "";
-  final TextEditingController _guessController = TextEditingController();
-  final List<String> usedWords = [];
+  late ConfettiController _confetti;
+  int _score = 0;
+  String _currentWord = '';
+  String _hiddenWord = '';
+  final TextEditingController _guessCtrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  final List<String> _usedWords = [];
   final Random _random = Random();
-  bool _showHint = false;
+  int _wordsGuessed = 0;
 
-  // Timer variables
-  int _timeLeft = 60; // 60 seconds
-  late Timer _timer;
-  bool _isGameActive = false;
+  late int _timeLeft;
+  Timer? _timer;
+  bool _gameActive = false;
+
+  String _feedback = '';
+  bool _feedbackPositive = false;
+
+  late List<String> _wordPool;
 
   @override
   void initState() {
     super.initState();
-    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
+    _confetti = ConfettiController(duration: const Duration(seconds: 3));
+    _wordPool = widget.customWords ?? List.from(coupleWords);
+    _timeLeft = widget.durationSeconds;
     _startGame();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _confetti.dispose();
+    _guessCtrl.dispose();
+    _focusNode.dispose();
+    super.dispose();
   }
 
   void _startGame() {
     _pickNewWord();
-    _startTimer();
-    setState(() {
-      _isGameActive = true;
-      score = 0;
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _timeLeft--);
+      if (_timeLeft <= 0) {
+        t.cancel();
+        _endGame();
+      }
     });
-  }
-
-  void _startTimer() {
-    _timeLeft = 60;
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        if (_timeLeft > 0) {
-          _timeLeft--;
-        } else {
-          _endGame();
-        }
-      });
-    });
-  }
-
-  void _endGame() {
-    _timer.cancel();
-    setState(() {
-      _isGameActive = false;
-    });
-    _showGameOverDialog();
+    setState(() => _gameActive = true);
   }
 
   void _pickNewWord() {
-    List<String> availableWords = coupleWords.where((word) => !usedWords.contains(word)).toList();
-
-    if (availableWords.isEmpty) {
-      availableWords = coupleWords;
-      usedWords.clear();
+    final available =
+        _wordPool.where((w) => !_usedWords.contains(w)).toList();
+    if (available.isEmpty) {
+      _usedWords.clear();
+      _pickNewWord();
+      return;
     }
-
     setState(() {
-      currentWord = availableWords[_random.nextInt(availableWords.length)];
-      usedWords.add(currentWord);
-      hiddenWord = _generateHiddenWord(currentWord);
-      _guessController.clear();
-      _showHint = false;
+      _currentWord = available[_random.nextInt(available.length)];
+      _usedWords.add(_currentWord);
+      _hiddenWord = _makeHidden(_currentWord);
+      _guessCtrl.clear();
+      _feedback = '';
     });
   }
 
-  String _generateHiddenWord(String word) {
-    if (word.length <= 3) return word[0] + "_" * (word.length - 1);
-
-    // Show 30% of letters randomly
-    final revealedIndices = <int>[];
-    final lettersToShow = max(1, (word.length * 0.3).floor());
-
-    while (revealedIndices.length < lettersToShow) {
-      final index = _random.nextInt(word.length);
-      if (index != 0 && !revealedIndices.contains(index)) {
-        revealedIndices.add(index);
-      }
+  String _makeHidden(String word) {
+    if (word.length <= 3) return '${word[0]}${'_' * (word.length - 1)}';
+    final show = max(1, (word.length * 0.3).floor());
+    final indices = <int>{0};
+    while (indices.length < show + 1) {
+      indices.add(_random.nextInt(word.length));
     }
-
-    String result = "";
-    for (int i = 0; i < word.length; i++) {
-      result += (i == 0 || revealedIndices.contains(i)) ? word[i] : "_";
-    }
-    return result;
+    return word.split('').asMap().entries
+        .map((e) => indices.contains(e.key) ? e.value : '_')
+        .join();
   }
 
   void _checkGuess() {
-    if (!_isGameActive || _guessController.text.trim().isEmpty) return;
+    if (!_gameActive) return;
+    final guess = _guessCtrl.text.trim().toLowerCase();
+    if (guess.isEmpty) return;
+    _guessCtrl.clear();
+    _focusNode.requestFocus();
 
-    if (_guessController.text.trim().toLowerCase() == currentWord.toLowerCase()) {
-      _confettiController.play();
+    if (guess == _currentWord.toLowerCase()) {
+      _confetti.play();
+      _wordsGuessed++;
       setState(() {
-        score += 5;
+        _score += 5;
+        _feedback = '+5 pts ✨';
+        _feedbackPositive = true;
       });
-      _pickNewWord();
+      Future.delayed(const Duration(milliseconds: 400), _pickNewWord);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Essayez encore !'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-      );
+      setState(() {
+        _feedback = 'Pas tout à fait !';
+        _feedbackPositive = false;
+      });
     }
   }
 
-  void _showGameOverDialog() {
+  Future<void> _endGame() async {
+    setState(() => _gameActive = false);
+    final session = GameSessionModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      mode: 'chrono',
+      teamScore: _score,
+      playedAt: DateTime.now(),
+      wordsGuessed: _wordsGuessed,
+      totalWords: _wordsGuessed,
+    );
+    await LocalStorageService().saveSession(session);
+    await LocalStorageService().incrementStat('games_played');
+    await LocalStorageService().incrementStat('words_guessed', _wordsGuessed);
+    await LocalStorageService().checkAndUpdateAchievements();
+
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          title: const Text(
-            '⏱️ Temps écoulé !',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 24,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'La partie est terminée',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 15),
-              Text(
-                'Score final: $score',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).pop();
-              },
-              child: const Text('Retour à l\'accueil'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _startGame();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.pink[300],
-              ),
-              child: const Text('Rejouer'),
-            ),
-          ],
-        );
-      },
+      builder: (_) => _GameOverDialog(
+        score: _score,
+        words: _wordsGuessed,
+        primaryColor: widget.primaryColor,
+        accentColor: widget.accentColor,
+        onReplay: () {
+          Navigator.pop(context);
+          setState(() {
+            _score = 0;
+            _timeLeft = widget.durationSeconds;
+            _wordsGuessed = 0;
+            _usedWords.clear();
+            _gameActive = false;
+          });
+          _startGame();
+        },
+        onHome: () => Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          (_) => false,
+        ),
+      ),
     );
   }
 
-  Color _getTeamColor() {
-    // Mélange des couleurs des deux joueurs
-    final color1 = _getPlayerColor(1);
-    final color2 = _getPlayerColor(2);
-
-    return Color.lerp(color1, color2, 0.5)!;
-  }
-
-  Color _getPlayerColor(int playerNumber) {
-    final color = playerNumber == 1 ? widget.player1Color : widget.player2Color;
-    switch (color) {
-      case 'Rouge': return Colors.red[400]!;
-      case 'Bleu': return Colors.blue[400]!;
-      case 'Rose': return Colors.pink[300]!;
-      case 'Vert': return Colors.green[400]!;
-      case 'Violet': return Colors.purple[400]!;
-      case 'Orange': return Colors.orange[400]!;
-      case 'Jaune': return Colors.yellow[600]!;
-      default: return Colors.grey;
-    }
-  }
-
-  void _toggleHint() {
-    setState(() {
-      _showHint = !_showHint;
-    });
+  Color get _timerColor {
+    if (_timeLeft > 30) return widget.primaryColor;
+    if (_timeLeft > 10) return Colors.orange;
+    return Colors.red;
   }
 
   @override
   Widget build(BuildContext context) {
-    final teamColor = _getTeamColor();
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Contre la montre'),
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        iconTheme: const IconThemeData(color: Colors.white), // Ajoutez cette ligne
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                _getPlayerColor(1).withOpacity(0.7),
-                _getPlayerColor(2).withOpacity(0.7),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_rounded,
+              color: AppColors.textDark),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('Contre-la-Montre',
+            style: TextStyle(
+                color: AppColors.textDark,
+                fontWeight: FontWeight.w700,
+                fontSize: 18)),
+        centerTitle: true,
+        actions: [
+          ConfettiWidget(
+            confettiController: _confetti,
+            blastDirectionality: BlastDirectionality.explosive,
+            shouldLoop: false,
+            numberOfParticles: 15,
+            colors: [widget.primaryColor, widget.accentColor, Colors.amber],
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              // Timer + score row
+              Row(
+                children: [
+                  // Timer
+                  Expanded(
+                    child: _TimerCard(
+                        timeLeft: _timeLeft,
+                        total: widget.durationSeconds,
+                        color: _timerColor),
+                  ),
+                  const SizedBox(width: 12),
+                  // Score
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                              color: widget.primaryColor.withValues(alpha: 0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3))
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.star_rounded,
+                              color: widget.primaryColor, size: 22),
+                          const SizedBox(height: 4),
+                          Text('$_score',
+                              style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  color: widget.primaryColor)),
+                          const Text('points',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textMedium)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              // Word card
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(28),
+                    boxShadow: [
+                      BoxShadow(
+                          color: widget.primaryColor.withValues(alpha: 0.15),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8))
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.timer_rounded,
+                          color: const Color(0xFF8B5CF6).withValues(alpha: 0.4),
+                          size: 36),
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          _hiddenWord,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.textDark,
+                            letterSpacing: 6,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('${_currentWord.length} lettres',
+                          style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textMedium)),
+                      const SizedBox(height: 16),
+                      if (_feedback.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _feedbackPositive
+                                ? Colors.green.withValues(alpha: 0.1)
+                                : Colors.orange.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(_feedback,
+                              style: TextStyle(
+                                  color: _feedbackPositive
+                                      ? Colors.green
+                                      : Colors.orange,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13)),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Input
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                        color: widget.primaryColor.withValues(alpha: 0.12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4))
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        focusNode: _focusNode,
+                        controller: _guessCtrl,
+                        onSubmitted: (_) => _checkGuess(),
+                        enabled: _gameActive,
+                        decoration: const InputDecoration(
+                          hintText: 'Devinez vite…',
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 16),
+                        ),
+                        style: const TextStyle(
+                            fontSize: 16, color: AppColors.textDark),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _gameActive ? _checkGuess : null,
+                      child: Container(
+                        margin: const EdgeInsets.all(6),
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [
+                            widget.primaryColor,
+                            widget.accentColor
+                          ]),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.send_rounded,
+                            color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: _gameActive ? _pickNewWord : null,
+                icon: const Icon(Icons.skip_next_rounded, size: 16),
+                label: const Text('Passer'),
+                style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textMedium),
+              ),
+              const SizedBox(height: 12),
+            ],
           ),
         ),
       ),
-      body: Stack(
+    );
+  }
+}
+
+class _TimerCard extends StatelessWidget {
+  final int timeLeft;
+  final int total;
+  final Color color;
+
+  const _TimerCard(
+      {required this.timeLeft,
+      required this.total,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
         children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFFfff5f5), Color(0xFFfef9ff)],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              children: [
-                // Timer and Score
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Timer
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: _timeLeft > 10 ? Colors.white : Colors.red[50],
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.2),
-                            spreadRadius: 2,
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.timer,
-                            color: _timeLeft > 10 ? Colors.blue[400] : Colors.red[400],
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            '$_timeLeft s',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: _timeLeft > 10 ? Colors.blue[700] : Colors.red[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Score
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(15),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.2),
-                            spreadRadius: 2,
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.star, color: Colors.amber[400]),
-                          const SizedBox(width: 10),
-                          Text(
-                            'Score: $score',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: teamColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 30),
-
-                // Word Card
-                Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(15),
-                      gradient: LinearGradient(
-                        colors: [
-                          teamColor.withOpacity(0.1),
-                          teamColor.withOpacity(0.05),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          hiddenWord,
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 3,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        if (_showHint)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 15),
-                            child: Text(
-                              '"${currentWord}"',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 30),
-
-                // Input Field
-                TextField(
-                  controller: _guessController,
-                  enabled: _isGameActive,
-                  decoration: InputDecoration(
-                    labelText: 'Votre réponse',
-                    labelStyle: TextStyle(color: Colors.grey[600]),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: teamColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(color: teamColor, width: 2),
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _showHint ? Icons.visibility_off : Icons.visibility,
-                        color: teamColor,
-                      ),
-                      onPressed: _isGameActive ? _toggleHint : null,
-                    ),
-                  ),
-                  onSubmitted: (_) => _checkGuess(),
-                  style: const TextStyle(fontSize: 18),
-                ),
-                const SizedBox(height: 20),
-
-                // Action Buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ElevatedButton(
-                      onPressed: _isGameActive ? _checkGuess : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: teamColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Valider',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _isGameActive
-                          ? () {
-                        setState(() {
-                          hiddenWord = currentWord;
-                        });
-                        Future.delayed(const Duration(seconds: 1), () {
-                          _pickNewWord();
-                        });
-                      }
-                          : null,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 15),
-                      ),
-                      child: Text(
-                        'Passer',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: const [
-                Colors.pink,
-                Colors.red,
-                Colors.purple,
-                Colors.blue,
-                Colors.green,
-              ],
+          Icon(Icons.timer_rounded, color: color, size: 22),
+          const SizedBox(height: 4),
+          Text('$timeLeft',
+              style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: color)),
+          const Text('secondes',
+              style: TextStyle(fontSize: 11, color: AppColors.textMedium)),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: timeLeft / total,
+              minHeight: 4,
+              backgroundColor: color.withValues(alpha: 0.15),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _GameOverDialog extends StatelessWidget {
+  final int score;
+  final int words;
+  final Color primaryColor;
+  final Color accentColor;
+  final VoidCallback onReplay;
+  final VoidCallback onHome;
+
+  const _GameOverDialog(
+      {required this.score,
+      required this.words,
+      required this.primaryColor,
+      required this.accentColor,
+      required this.onReplay,
+      required this.onHome});
 
   @override
-  void dispose() {
-    _confettiController.dispose();
-    _guessController.dispose();
-    if (_isGameActive) _timer.cancel();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.timer_off_rounded,
+                  color: Color(0xFF8B5CF6), size: 36),
+            ),
+            const SizedBox(height: 16),
+            const Text('Temps écoulé !',
+                style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark)),
+            const SizedBox(height: 8),
+            Text('Score : $score pts • $words mots',
+                style: TextStyle(
+                    fontSize: 15,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onHome,
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: primaryColor),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: Text('Accueil',
+                        style: TextStyle(color: primaryColor)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: onReplay,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Rejouer',
+                        style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
