@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'conversation_service.dart';
 
 // ─── Models ────────────────────────────────────────────────────────
 
@@ -13,6 +14,7 @@ class UserProfile {
   final String? coupleId;
   final DateTime? anniversaryDate;
   final DateTime? birthday;
+  final List<String> friendUids; // max 2 extra contacts
 
   UserProfile({
     required this.uid,
@@ -24,6 +26,7 @@ class UserProfile {
     this.coupleId,
     this.anniversaryDate,
     this.birthday,
+    this.friendUids = const [],
   });
 
   factory UserProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -37,6 +40,7 @@ class UserProfile {
       coupleId: map['coupleId'] as String?,
       anniversaryDate: (map['anniversaryDate'] as Timestamp?)?.toDate(),
       birthday: (map['birthday'] as Timestamp?)?.toDate(),
+      friendUids: (map['friendUids'] as List?)?.cast<String>() ?? [],
     );
   }
 }
@@ -283,6 +287,70 @@ class CoupleService {
       'coupleId': FieldValue.delete(),
     });
     await batch.commit();
+  }
+
+  // ── Friends (up to 2 extra contacts) ────────────────────────────
+
+  static const int maxFriends = 2;
+
+  /// Adds a friend by email. Throws a user-facing [Exception] on failure.
+  static Future<void> addFriend(String email) async {
+    final myUid = _myUid;
+    if (myUid == null) throw Exception('Non connecté');
+
+    // Find user by email
+    final q = await _db
+        .collection('users')
+        .where('email', isEqualTo: email.trim().toLowerCase())
+        .limit(1)
+        .get();
+    if (q.docs.isEmpty) throw Exception('Aucun utilisateur trouvé avec cet e-mail.');
+
+    final friendUid = q.docs.first.id;
+    if (friendUid == myUid) throw Exception('Vous ne pouvez pas vous ajouter vous-même.');
+
+    final myDoc = await _db.collection('users').doc(myUid).get();
+    final current =
+        List<String>.from((myDoc.data()?['friendUids'] as List?) ?? []);
+
+    if (current.contains(friendUid)) throw Exception('Ce contact est déjà ajouté.');
+    if (current.length >= maxFriends) {
+      throw Exception('Vous avez déjà $maxFriends contacts (maximum atteint).');
+    }
+
+    await _db.collection('users').doc(myUid).update({
+      'friendUids': FieldValue.arrayUnion([friendUid]),
+    });
+
+    // Pre-create the conversation so the chat tab shows it immediately
+    final friendData = q.docs.first.data();
+    final friendName = (friendData['displayName'] as String?) ??
+        (friendData['pseudo'] as String?) ??
+        'Contact';
+    final friendAvatar = friendData['avatarUrl'] as String?;
+    await ConversationService.ensureConversationWith(
+        friendUid, friendName, friendAvatar);
+  }
+
+  /// Removes a friend by uid.
+  static Future<void> removeFriend(String friendUid) async {
+    final myUid = _myUid;
+    if (myUid == null) return;
+    await _db.collection('users').doc(myUid).update({
+      'friendUids': FieldValue.arrayRemove([friendUid]),
+    });
+  }
+
+  /// Fetches all friend profiles for the given [friendUids].
+  static Future<List<UserProfile>> getFriendProfiles(
+      List<String> friendUids) async {
+    if (friendUids.isEmpty) return [];
+    final results = <UserProfile>[];
+    for (final uid in friendUids) {
+      final snap = await _db.collection('users').doc(uid).get();
+      if (snap.exists) results.add(UserProfile.fromMap(snap.id, snap.data()!));
+    }
+    return results;
   }
 
   // ── Stories ─────────────────────────────────────────────────────

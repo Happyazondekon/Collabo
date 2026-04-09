@@ -4,19 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/chat_message_model.dart';
-import '../services/chat_service.dart';
+import '../services/conversation_service.dart';
 import '../services/couple_service.dart';
 import '../utils/app_theme.dart';
 
 class LoveChatScreen extends StatefulWidget {
-  final String coupleId;
+  final String conversationId;
   final String? partnerUid;
   final String? partnerName;
   final String? partnerAvatarUrl;
 
   const LoveChatScreen({
     super.key,
-    required this.coupleId,
+    required this.conversationId,
     this.partnerUid,
     this.partnerName,
     this.partnerAvatarUrl,
@@ -92,7 +92,7 @@ class _LoveChatScreenState extends State<LoveChatScreen>
     if (text.isEmpty || _sending) return;
     _textCtrl.clear();
     setState(() => _sending = true);
-    await ChatService.sendText(widget.coupleId, text);
+    await ConversationService.sendText(widget.conversationId, text);
     setState(() => _sending = false);
     _scrollToBottom();
   }
@@ -106,8 +106,8 @@ class _LoveChatScreenState extends State<LoveChatScreen>
     );
     if (picked == null) return;
     setState(() => _sending = true);
-    await ChatService.sendImage(
-        widget.coupleId, File(picked.path), _viewOnceMode,
+    await ConversationService.sendImage(
+        widget.conversationId, File(picked.path), _viewOnceMode,
         viewOnceDuration: _viewOnceDuration);
     if (mounted) setState(() => _sending = false);
     _scrollToBottom();
@@ -281,7 +281,7 @@ class _LoveChatScreenState extends State<LoveChatScreen>
           ),
           Expanded(
             child: StreamBuilder<List<ChatMessage>>(
-              stream: ChatService.messagesStream(widget.coupleId),
+              stream: ConversationService.messagesStream(widget.conversationId),
               builder: (ctx, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -291,17 +291,8 @@ class _LoveChatScreenState extends State<LoveChatScreen>
                 final messages = snap.data ?? [];
                 if (messages.isEmpty) return const _EmptyChat();
 
-                // Mark unseen partner messages as seen
-                final unseenIds = messages
-                    .where((m) =>
-                        m.senderUid != _myProfile?.uid &&
-                        !m.viewedByPartner &&
-                        m.type != MessageType.viewOnce)
-                    .map((m) => m.id)
-                    .toList();
-                if (unseenIds.isNotEmpty) {
-                  ChatService.markSeen(widget.coupleId, unseenIds);
-                }
+                // Reset my unread count for this conversation
+                ConversationService.resetUnread(widget.conversationId);
 
                 WidgetsBinding.instance
                     .addPostFrameCallback((_) => _scrollToBottom());
@@ -329,15 +320,15 @@ class _LoveChatScreenState extends State<LoveChatScreen>
                           isMe: isMe,
                           myAvatarUrl: _myProfile?.avatarUrl,
                           partnerAvatarUrl: _resolvedPartnerAvatarUrl,
-                          coupleId: widget.coupleId,
-                          onReact: (emoji) => ChatService.react(
-                              widget.coupleId, msg.id, emoji),
+                          onReact: (emoji) => ConversationService.react(
+                              widget.conversationId, msg.id, emoji),
                           onDelete: isMe
-                              ? () => ChatService.deleteMessage(
-                                  widget.coupleId, msg.id)
+                              ? () => ConversationService.deleteMessage(
+                                  widget.conversationId, msg.id)
                               : null,
-                          onViewOnce: () => ChatService.markViewOnceViewed(
-                              widget.coupleId, msg.id),
+                          onViewOnce: () =>
+                              ConversationService.markViewOnceViewed(
+                                  widget.conversationId, msg.id),
                         ),
                       ],
                     );
@@ -385,9 +376,14 @@ class _ChatAppBar extends StatelessWidget {
         bottom: false,
         child: Padding(
           padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Row(
             children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_ios_rounded,
+                    color: Colors.white, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
               _AvatarWithRing(
                   url: partnerAvatarUrl, name: partnerName, size: 38),
               const SizedBox(width: 12),
@@ -571,7 +567,6 @@ class _MessageBubble extends StatefulWidget {
   final bool isMe;
   final String? myAvatarUrl;
   final String? partnerAvatarUrl;
-  final String coupleId;
   final Future<void> Function(String?) onReact;
   final VoidCallback? onDelete;
   final VoidCallback onViewOnce;
@@ -581,7 +576,6 @@ class _MessageBubble extends StatefulWidget {
     required this.isMe,
     required this.myAvatarUrl,
     required this.partnerAvatarUrl,
-    required this.coupleId,
     required this.onReact,
     required this.onDelete,
     required this.onViewOnce,

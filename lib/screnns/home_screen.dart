@@ -3,14 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../services/couple_service.dart';
-import '../services/chat_service.dart';
+import '../services/conversation_service.dart';
 import '../utils/app_theme.dart';
 import 'game_modes_screen.dart';
 import 'calendar_screen.dart';
 import 'gallery_screen.dart';
 import 'history_screen.dart';
 import 'notre_histoire_screen.dart';
-import 'love_chat_screen.dart';
+import 'conversations_list_screen.dart';
 import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -50,16 +50,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _inviteSub = CoupleService.pendingInvitesStream().listen((list) {
       if (mounted) setState(() => _pendingInviteCount = list.length);
     });
-    _profileSub = CoupleService.myProfileStream().listen((profile) {
-      _chatUnreadSub?.cancel();
-      if (profile?.coupleId != null) {
-        _chatUnreadSub =
-            ChatService.unreadCountStream(profile!.coupleId!).listen((n) {
-          if (mounted) setState(() => _chatUnreadCount = n);
-        });
-      } else {
-        if (mounted) setState(() => _chatUnreadCount = 0);
-      }
+    // Profile sub only needed for pending invites (chat badge uses ConversationService)
+    _profileSub = CoupleService.myProfileStream().listen((_) {});
+    _chatUnreadSub = ConversationService.totalUnreadStream().listen((n) {
+      if (mounted) setState(() => _chatUnreadCount = n);
     });
   }
 
@@ -109,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onNavigate: _navigateToTab,
         onPlay: () => _startGame(context),
       ),
-      const _ChatTabWrapper(),
+      const ConversationsListScreen(),
       GameModesScreen(primaryColor: _primaryColor, accentColor: _accentColor),
       const ProfileScreen(),
     ];
@@ -358,7 +352,7 @@ class _HomeContent extends StatelessWidget {
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: AppColors.primarySoft,
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.favorite_rounded,
@@ -530,12 +524,17 @@ class _GreetingSection extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Bonjour, $firstName 👋',
-                          style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.textDark),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Bonjour, $firstName 👋',
+                            style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.textDark),
+                            maxLines: 1,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -552,7 +551,7 @@ class _GreetingSection extends StatelessWidget {
                     width: 52,
                     height: 52,
                     decoration: BoxDecoration(
-                      color: AppColors.primarySoft,
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Icon(Icons.favorite_rounded,
@@ -726,59 +725,6 @@ class _FeatureCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 // Chat tab wrapper (stream-aware)
 // ─────────────────────────────────────────────
-
-class _ChatTabWrapper extends StatelessWidget {
-  const _ChatTabWrapper();
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<UserProfile?>(
-      stream: CoupleService.myProfileStream(),
-      builder: (ctx, snap) {
-        final profile = snap.data;
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (profile?.coupleId == null) {
-          return Scaffold(
-            backgroundColor: AppColors.background,
-            body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.favorite_border_rounded,
-                      size: 72,
-                      color: AppColors.primary.withValues(alpha: 0.35)),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Pas encore connectés',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Liez-vous à votre partenaire\npour accéder au chat',
-                    textAlign: TextAlign.center,
-                    style:
-                        TextStyle(fontSize: 14, color: AppColors.textMedium),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-        return LoveChatScreen(
-          coupleId: profile!.coupleId!,
-          partnerUid: profile.partnerUid,
-        );
-      },
-    );
-  }
-}
 
 // ─────────────────────────────────────────────
 // Bottom navigation bar

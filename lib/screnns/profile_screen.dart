@@ -101,6 +101,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _PartnerSection(profile: profile),
                 const SizedBox(height: 16),
 
+                // Extra contacts (up to 2 friends)
+                _FriendsSection(profile: profile),
+                const SizedBox(height: 16),
+
                 // Dates card
                 _DatesCard(profile: profile),
                 const SizedBox(height: 16),
@@ -537,6 +541,316 @@ class _PendingInviteBanner extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ─── Friends / extra contacts section ────────────────────────────────
+
+class _FriendsSection extends StatefulWidget {
+  final UserProfile? profile;
+  const _FriendsSection({required this.profile});
+
+  @override
+  State<_FriendsSection> createState() => _FriendsSectionState();
+}
+
+class _FriendsSectionState extends State<_FriendsSection> {
+  List<UserProfile>? _friends;
+  bool _showInput = false;
+  final _emailCtrl = TextEditingController();
+  String? _error;
+  bool _adding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFriends();
+  }
+
+  @override
+  void didUpdateWidget(_FriendsSection old) {
+    super.didUpdateWidget(old);
+    if (old.profile?.friendUids != widget.profile?.friendUids) {
+      _loadFriends();
+    }
+  }
+
+  Future<void> _loadFriends() async {
+    final uids = widget.profile?.friendUids ?? [];
+    final list = await CoupleService.getFriendProfiles(uids);
+    if (mounted) setState(() => _friends = list);
+  }
+
+  Future<void> _addFriend() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) return;
+    setState(() { _adding = true; _error = null; });
+    try {
+      await CoupleService.addFriend(email);
+      _emailCtrl.clear();
+      if (mounted) setState(() { _showInput = false; _adding = false; });
+      await _loadFriends();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+          _adding = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removeFriend(UserProfile friend) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Retirer ce contact ?',
+            style: TextStyle(fontWeight: FontWeight.w700)),
+        content: Text(
+            '${friend.displayName ?? friend.pseudo ?? 'Ce contact'} sera retiré de vos contacts.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Retirer'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await CoupleService.removeFriend(friend.uid);
+      await _loadFriends();
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final friends = _friends ?? [];
+    final canAdd = friends.length < CoupleService.maxFriends;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              blurRadius: 14,
+              offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.people_alt_rounded,
+                  size: 18, color: AppColors.accent),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text('Mes contacts',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textDark)),
+              ),
+              Text('${friends.length}/${CoupleService.maxFriends}',
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textMedium)),
+            ],
+          ),
+          if (friends.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            ...friends.map((f) => _FriendTile(
+                  friend: f,
+                  onRemove: () => _removeFriend(f),
+                )),
+          ],
+          if (canAdd) ...[
+            const SizedBox(height: 12),
+            if (_showInput)
+              _AddFriendInput(
+                ctrl: _emailCtrl,
+                error: _error,
+                adding: _adding,
+                onAdd: _addFriend,
+                onCancel: () =>
+                    setState(() { _showInput = false; _error = null; }),
+              )
+            else
+              GestureDetector(
+                onTap: () => setState(() => _showInput = true),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentLight,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.accent.withValues(alpha: 0.3)),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.person_add_rounded,
+                          color: AppColors.accent, size: 18),
+                      SizedBox(width: 6),
+                      Text('Ajouter un contact',
+                          style: TextStyle(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FriendTile extends StatelessWidget {
+  final UserProfile friend;
+  final VoidCallback onRemove;
+  const _FriendTile({required this.friend, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = friend.displayName ?? friend.pseudo ?? 'Contact';
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: AppColors.accentLight,
+            backgroundImage: friend.avatarUrl != null
+                ? NetworkImage(friend.avatarUrl!)
+                : null,
+            child: friend.avatarUrl == null
+                ? Text(initial,
+                    style: const TextStyle(
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14))
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: AppColors.textDark)),
+                if (friend.email != null)
+                  Text(friend.email!,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textMedium)),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: onRemove,
+            child: const Icon(Icons.remove_circle_outline_rounded,
+                size: 18, color: AppColors.textLight),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddFriendInput extends StatelessWidget {
+  final TextEditingController ctrl;
+  final String? error;
+  final bool adding;
+  final VoidCallback onAdd;
+  final VoidCallback onCancel;
+
+  const _AddFriendInput({
+    required this.ctrl,
+    required this.error,
+    required this.adding,
+    required this.onAdd,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.emailAddress,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Email du contact',
+            errorText: error,
+            prefixIcon: const Icon(Icons.email_outlined,
+                color: AppColors.accent, size: 20),
+            filled: true,
+            fillColor: AppColors.background,
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: onCancel,
+                child: const Text('Annuler',
+                    style: TextStyle(color: AppColors.textMedium)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                onPressed: adding ? null : onAdd,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                ),
+                child: adding
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('Ajouter',
+                        style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

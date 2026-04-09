@@ -43,6 +43,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "915936525536-9k5sfircc7l063gbuhq99qc55ku1crkq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.heyhappy.collabo",
+            "certificate_hash": "f8f9a5ae2aa272ada599c141f0daa4a0a63ff9e2"
+          }
+        },
+        {
           "client_id": "915936525536-sv7tcsu3ujep93fuild20aiag6rrvv8c.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
