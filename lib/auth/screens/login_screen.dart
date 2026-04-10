@@ -86,8 +86,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     Center(
                       child: Container(
-                        width: 80,
-                        height: 80,
+                        width: 90,
+                        height: 90,
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(24),
@@ -99,9 +99,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ],
                         ),
-                        child: const Center(
-                          child: Icon(Icons.favorite_rounded,
-                              color: AppColors.primary, size: 42),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(22),
+                          child: Image.asset('assets/cologo.png', fit: BoxFit.cover),
                         ),
                       ),
                     ),
@@ -284,13 +284,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                         height: 20,
                                         child: CircularProgressIndicator(strokeWidth: 2.5),
                                       )
-                                    : Image.network(
-                                        'https://www.svgrepo.com/show/475656/google-color.svg',
+                                    : Image.asset(
+                                        'assets/google_logo.webp',
                                         height: 22,
                                         width: 22,
-                                        errorBuilder: (_, __, ___) => const Icon(
-                                            Icons.language,
-                                            color: Colors.blue),
                                       ),
                                 label: const Text('Continuer avec Google',
                                     style: TextStyle(fontWeight: FontWeight.w600)),

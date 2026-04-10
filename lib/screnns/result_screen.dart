@@ -91,25 +91,11 @@ class _ResultScreenState extends State<ResultScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 24),
-                  // Trophy
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                          colors: [_winnerColor, widget.accentColor],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                            color: _winnerColor.withValues(alpha: 0.4),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8))
-                      ],
-                    ),
-                    child: const Icon(Icons.emoji_events_rounded,
-                        color: Colors.white, size: 52),
+                  // Trophy illustration
+                  Image.asset(
+                    'assets/couple_victory.webp',
+                    width: 160,
+                    height: 160,
                   ),
                   const SizedBox(height: 20),
                   const Text('Félicitations !',

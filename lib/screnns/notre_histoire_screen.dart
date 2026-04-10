@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../services/couple_service.dart';
 import '../utils/app_theme.dart';
+import '../widgets/user_avatar.dart';
 
 const _kReactionEmojis = ['❤️', '😂', '😮', '😢', '🥰'];
 
@@ -272,28 +273,12 @@ class _EmptyStories extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 104,
-              height: 104,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFD6E8), Color(0xFFE2D4FF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFFD0216E).withValues(alpha: 0.18),
-                    blurRadius: 28,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.auto_stories_rounded,
-                  size: 46, color: AppColors.primary),
+            Image.asset(
+              'assets/couple_histoire.webp',
+              width: 180,
+              height: 180,
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
             ShaderMask(
               shaderCallback: (b) => const LinearGradient(
                 colors: [AppColors.primary, AppColors.accent],
@@ -436,23 +421,13 @@ class _StoryCard extends StatelessWidget {
                                 gradient: LinearGradient(colors: gradColors),
                                 shape: BoxShape.circle,
                               ),
-                              child: CircleAvatar(
+                              child: UserAvatar(
+                                name: entry.authorName,
+                                avatarUrl: entry.authorAvatarUrl,
+                                avatarData: entry.authorAvatarData,
                                 radius: 16,
                                 backgroundColor: avatarBg,
-                                backgroundImage:
-                                    entry.authorAvatarUrl != null &&
-                                            entry.authorAvatarUrl!.isNotEmpty
-                                        ? NetworkImage(
-                                            entry.authorAvatarUrl!)
-                                        : null,
-                                child: entry.authorAvatarUrl == null ||
-                                        entry.authorAvatarUrl!.isEmpty
-                                    ? Text(initial,
-                                        style: TextStyle(
-                                            color: avatarFg,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 12))
-                                    : null,
+                                textColor: avatarFg,
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -843,21 +818,13 @@ class _CommentTile extends StatelessWidget {
             isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!isMe) ...[
-            CircleAvatar(
+            UserAvatar(
+              name: comment.authorName,
+              avatarUrl: comment.authorAvatarUrl,
+              avatarData: comment.authorAvatarData,
               radius: 14,
               backgroundColor: AppColors.accentLight,
-              backgroundImage: comment.authorAvatarUrl != null &&
-                      comment.authorAvatarUrl!.isNotEmpty
-                  ? NetworkImage(comment.authorAvatarUrl!)
-                  : null,
-              child: comment.authorAvatarUrl == null ||
-                      comment.authorAvatarUrl!.isEmpty
-                  ? Text(initial,
-                      style: const TextStyle(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 10))
-                  : null,
+              textColor: AppColors.accent,
             ),
             const SizedBox(width: 8),
           ],
@@ -904,21 +871,13 @@ class _CommentTile extends StatelessWidget {
           ),
           if (isMe) ...[
             const SizedBox(width: 8),
-            CircleAvatar(
+            UserAvatar(
+              name: comment.authorName,
+              avatarUrl: comment.authorAvatarUrl,
+              avatarData: comment.authorAvatarData,
               radius: 14,
               backgroundColor: AppColors.primarySoft,
-              backgroundImage: comment.authorAvatarUrl != null &&
-                      comment.authorAvatarUrl!.isNotEmpty
-                  ? NetworkImage(comment.authorAvatarUrl!)
-                  : null,
-              child: comment.authorAvatarUrl == null ||
-                      comment.authorAvatarUrl!.isEmpty
-                  ? Text(initial,
-                      style: const TextStyle(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 10))
-                  : null,
+              textColor: AppColors.primary,
             ),
           ],
         ],

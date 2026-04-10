@@ -151,9 +151,12 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.sports_esports_rounded,
-              size: 72, color: AppColors.primary.withValues(alpha: 0.25)),
-          const SizedBox(height: 16),
+          Image.asset(
+            'assets/couple_history.webp',
+            width: 160,
+            height: 160,
+          ),
+          const SizedBox(height: 12),
           const Text('Aucune partie jouée',
               style: TextStyle(
                   fontSize: 18,

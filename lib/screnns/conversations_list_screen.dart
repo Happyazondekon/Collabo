@@ -5,6 +5,7 @@ import '../models/conversation_model.dart';
 import '../services/conversation_service.dart';
 import '../services/couple_service.dart';
 import '../utils/app_theme.dart';
+import '../widgets/user_avatar.dart';
 import 'love_chat_screen.dart';
 
 class ConversationsListScreen extends StatefulWidget {
@@ -223,15 +224,12 @@ class _ConversationsListScreenState extends State<ConversationsListScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 96,
-            height: 96,
-            decoration: const BoxDecoration(
-                color: AppColors.primarySoft, shape: BoxShape.circle),
-            child: const Icon(Icons.chat_bubble_outline_rounded,
-                size: 48, color: AppColors.primary),
+          Image.asset(
+            'assets/couple_chat.webp',
+            width: 170,
+            height: 170,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           const Text('Aucun message',
               style: TextStyle(
                   fontSize: 20,
@@ -266,6 +264,7 @@ class _ConversationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = conv.partnerName(myUid);
     final avatar = conv.partnerAvatar(myUid);
+    final avatarData = conv.partnerAvatarData(myUid);
     final lastMsg = conv.lastMessage;
     final time = conv.lastMessageAt;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
@@ -281,20 +280,13 @@ class _ConversationTile extends StatelessWidget {
             // Avatar
             Stack(
               children: [
-                CircleAvatar(
+                UserAvatar(
+                  name: name,
+                  avatarUrl: avatar,
+                  avatarData: avatarData,
                   radius: 26,
                   backgroundColor: AppColors.primarySoft,
-                  backgroundImage:
-                      avatar != null && avatar.isNotEmpty
-                          ? NetworkImage(avatar)
-                          : null,
-                  child: avatar == null || avatar.isEmpty
-                      ? Text(initial,
-                          style: const TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 18))
-                      : null,
+                  textColor: AppColors.primary,
                 ),
                 if (hasUnread)
                   Positioned(

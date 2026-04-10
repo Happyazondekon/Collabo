@@ -1,6 +1,9 @@
 ﻿import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import '../services/notification_service.dart';
 import '../models/user_model.dart';
 import '../services/couple_service.dart';
 import '../services/conversation_service.dart';
@@ -12,6 +15,9 @@ import 'history_screen.dart';
 import 'notre_histoire_screen.dart';
 import 'conversations_list_screen.dart';
 import 'profile_screen.dart';
+import 'feed_screen.dart';
+import 'call_screen.dart';
+import '../services/call_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,10 +30,20 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentNavIndex = 0;
   int _chatUnreadCount = 0;
   int _pendingInviteCount = 0;
+  int _pendingGameCount = 0;
+
+  // Valeurs précédentes pour détecter les augmentations
+  int _prevChatUnread   = 0;
+  int _prevInviteCount  = 0;
+  int _prevGameCount    = 0;
+  String? _lastScheduledCoupleId;
 
   StreamSubscription<UserProfile?>? _profileSub;
   StreamSubscription<int>? _chatUnreadSub;
   StreamSubscription<List<CoupleRequest>>? _inviteSub;
+  StreamSubscription<int>? _gameInviteSub;
+  StreamSubscription<IncomingCallData?>? _incomingCallSub;
+  final _shownCallIds = <String>{};
 
   // Color theme state — shown in sheet before game
   Color _primaryColor = const Color(0xFFD0216E);
@@ -48,13 +64,60 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     CoupleService.ensureProfileExists();
     _inviteSub = CoupleService.pendingInvitesStream().listen((list) {
-      if (mounted) setState(() => _pendingInviteCount = list.length);
+      if (!mounted) return;
+      final n = list.length;
+      if (n > _prevInviteCount) {
+        // Nouvelle demande reçue → notification
+        final latest = list.isNotEmpty ? list.last : null;
+        if (latest != null) {
+          CollaboNotificationService()
+              .showCoupleRequest(fromName: latest.fromName);
+        }
+      }
+      _prevInviteCount = n;
+      setState(() => _pendingInviteCount = n);
     });
-    // Profile sub only needed for pending invites (chat badge uses ConversationService)
-    _profileSub = CoupleService.myProfileStream().listen((_) {});
+    // Listen to profile: game invite badge + romantic reminders scheduling
+    _profileSub = CoupleService.myProfileStream().listen((profile) {
+      final coupleId = profile?.coupleId;
+      _gameInviteSub?.cancel();
+      if (coupleId != null) {
+        final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        _gameInviteSub =
+            RemoteGamesService.pendingRemoteGameStream(coupleId, myUid)
+                .listen((n) {
+          if (!mounted) return;
+          if (n > _prevGameCount) {
+            CollaboNotificationService().showGameInvite(
+              partnerName: profile?.pseudo ?? profile?.displayName,
+            );
+          }
+          _prevGameCount = n;
+          setState(() => _pendingGameCount = n);
+        });
+        // Schedule romantic reminders once per coupleId load
+        if (_lastScheduledCoupleId != coupleId) {
+          _lastScheduledCoupleId = coupleId;
+          CollaboNotificationService().scheduleRomanticReminders(
+            partnerName:      profile?.pseudo ?? profile?.displayName,
+            anniversaryDate:  profile?.anniversaryDate,
+            partnerBirthday:  profile?.partnerUid != null ? null : null,
+          );
+        }
+      } else {
+        if (mounted) setState(() => _pendingGameCount = 0);
+      }
+    });
     _chatUnreadSub = ConversationService.totalUnreadStream().listen((n) {
-      if (mounted) setState(() => _chatUnreadCount = n);
+      if (!mounted) return;
+      // Notifier uniquement si l'utilisateur n'est pas déjà sur l'onglet Chat
+      if (n > _prevChatUnread && _currentNavIndex != 2) {
+        CollaboNotificationService().showNewMessage();
+      }
+      _prevChatUnread = n;
+      setState(() => _chatUnreadCount = n);
     });
+    _listenIncomingCalls();
   }
 
   @override
@@ -62,10 +125,32 @@ class _HomeScreenState extends State<HomeScreen> {
     _profileSub?.cancel();
     _chatUnreadSub?.cancel();
     _inviteSub?.cancel();
+    _gameInviteSub?.cancel();
+    _incomingCallSub?.cancel();
     super.dispose();
   }
 
   void _navigateToTab(int index) => setState(() => _currentNavIndex = index);
+
+  void _listenIncomingCalls() {
+    _incomingCallSub = CallService.incomingCallStream().listen((call) {
+      if (!mounted || call == null) return;
+      if (_shownCallIds.contains(call.callId)) return;
+      _shownCallIds.add(call.callId);
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => IncomingCallPage(
+            callId: call.callId,
+            callerName: call.callerName,
+            callerAvatar: call.callerAvatar,
+            isVideo: call.isVideo,
+            conversationId: call.conversationId,
+          ),
+        ),
+      );
+    });
+  }
 
   /// Opens a bottom sheet for color selection, then pushes GameModesScreen.
   void _startGame(BuildContext context) {
@@ -103,6 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onNavigate: _navigateToTab,
         onPlay: () => _startGame(context),
       ),
+      const FeedScreen(),
       const ConversationsListScreen(),
       GameModesScreen(primaryColor: _primaryColor, accentColor: _accentColor),
       const ProfileScreen(),
@@ -116,7 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _BottomNav(
             currentIndex: _currentNavIndex,
             onTap: _navigateToTab,
-            badges: [0, _chatUnreadCount, 0, _pendingInviteCount],
+            badges: [0, 0, _chatUnreadCount, _pendingGameCount, _pendingInviteCount],
           ),
         ],
       ),
@@ -328,7 +414,11 @@ class _HomeContent extends StatelessWidget {
         final firstName = profile?.pseudo?.isNotEmpty == true
             ? profile!.pseudo!
             : user?.displayName?.split(' ').first ?? 'vous';
-        final avatarUrl = profile?.avatarUrl ?? user?.photoURL;
+        final avatarData = profile?.avatarData;
+        final hasCustomPhoto = avatarData != null && avatarData.isNotEmpty;
+        final avatarUrl = hasCustomPhoto
+            ? null
+            : (profile?.avatarUrl ?? user?.photoURL);
         final initial = (profile?.pseudo?.isNotEmpty == true
                 ? profile!.pseudo![0]
                 : user?.displayName?.isNotEmpty == true
@@ -348,15 +438,10 @@ class _HomeContent extends StatelessWidget {
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.favorite_rounded,
-                    color: AppColors.primary, size: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset('assets/cologo.png',
+                    width: 28, height: 28, fit: BoxFit.cover),
               ),
               const SizedBox(width: 8),
               const Text('Collabo',
@@ -375,9 +460,12 @@ class _HomeContent extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 20,
                   backgroundColor: AppColors.primarySoft,
-                  backgroundImage:
-                      avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                  child: avatarUrl == null
+                  backgroundImage: hasCustomPhoto
+                      ? MemoryImage(base64Decode(avatarData!)) as ImageProvider
+                      : avatarUrl != null
+                          ? NetworkImage(avatarUrl)
+                          : null,
+                  child: !hasCustomPhoto && avatarUrl == null
                       ? Text(
                           initial,
                           style: const TextStyle(
@@ -547,20 +635,23 @@ class _GreetingSection extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(Icons.favorite_rounded,
-                        color: AppColors.primary, size: 28),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.asset('assets/cologo.png',
+                        width: 52, height: 52, fit: BoxFit.cover),
                   ),
                 ],
               ),
               if (!coupled) ...[
                 const SizedBox(height: 14),
+                Center(
+                  child: Image.asset(
+                    'assets/couple_solo.webp',
+                    width: 100,
+                    height: 100,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 GestureDetector(
                   onTap: () {
                     // Navigate to profile tab to link account
@@ -625,12 +716,11 @@ class _PlayButton extends StatelessWidget {
                 offset: const Offset(0, 8)),
           ],
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(Icons.play_circle_filled_rounded,
-                color: Colors.white, size: 36),
-            SizedBox(width: 16),
-            Column(
+            Image.asset('assets/couple_game.webp', width: 72, height: 72),
+            const SizedBox(width: 16),
+            const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Jouer',
@@ -644,8 +734,8 @@ class _PlayButton extends StatelessWidget {
                         fontSize: 13)),
               ],
             ),
-            Spacer(),
-            Icon(Icons.arrow_forward_ios_rounded,
+            const Spacer(),
+            const Icon(Icons.arrow_forward_ios_rounded,
                 color: Colors.white70, size: 16),
           ],
         ),
@@ -745,6 +835,7 @@ class _BottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     const items = [
       {'icon': Icons.home_rounded, 'label': 'ACCUEIL'},
+      {'icon': Icons.people_rounded, 'label': 'FEED'},
       {'icon': Icons.chat_bubble_rounded, 'label': 'CHAT'},
       {'icon': Icons.extension_rounded, 'label': 'JEUX'},
       {'icon': Icons.person_rounded, 'label': 'PROFIL'},

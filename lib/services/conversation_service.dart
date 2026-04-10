@@ -49,6 +49,7 @@ class ConversationService {
             _auth.currentUser?.displayName ??
             'Moi';
     final myAvatar = myData?['avatarUrl'] as String?;
+    final myAvatarData = myData?['avatarData'] as String?;
 
     final convId = buildId(myUid, partnerUid);
     final ref = _db.collection('conversations').doc(convId);
@@ -66,6 +67,9 @@ class ConversationService {
           if (partnerAvatarUrl != null && partnerAvatarUrl.isNotEmpty)
             partnerUid: partnerAvatarUrl,
         },
+        'avatarDatas': {
+          if (myAvatarData != null && myAvatarData.isNotEmpty) myUid: myAvatarData,
+        },
         'unreadCounts': {myUid: 0, partnerUid: 0},
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -77,6 +81,8 @@ class ConversationService {
         if (partnerAvatarUrl != null && partnerAvatarUrl.isNotEmpty)
           'avatars.$partnerUid': partnerAvatarUrl,
         if (myAvatar != null && myAvatar.isNotEmpty) 'avatars.$myUid': myAvatar,
+        if (myAvatarData != null && myAvatarData.isNotEmpty)
+          'avatarDatas.$myUid': myAvatarData,
       };
       await ref.update(updates);
     }
@@ -180,7 +186,13 @@ class ConversationService {
 
   // ── Send text message ──────────────────────────────────────────
 
-  static Future<void> sendText(String conversationId, String text) async {
+  static Future<void> sendText(
+    String conversationId,
+    String text, {
+    String? replyToId,
+    String? replyToText,
+    String? replyToSenderUid,
+  }) async {
     final uid = _myUid;
     if (uid == null || text.trim().isEmpty) return;
     await _db
@@ -193,6 +205,9 @@ class ConversationService {
           text: text.trim(),
           type: MessageType.text,
           viewedByPartner: false,
+          replyToId: replyToId,
+          replyToText: replyToText,
+          replyToSenderUid: replyToSenderUid,
           createdAt: DateTime.now(),
         ).toMap());
     await _touch(conversationId, text.trim());
@@ -202,7 +217,10 @@ class ConversationService {
 
   static Future<void> sendImage(
       String conversationId, File imageFile, bool viewOnce,
-      {int viewOnceDuration = 15}) async {
+      {int viewOnceDuration = 15,
+      String? replyToId,
+      String? replyToText,
+      String? replyToSenderUid}) async {
     final uid = _myUid;
     if (uid == null) return;
 
@@ -220,6 +238,9 @@ class ConversationService {
           type: viewOnce ? MessageType.viewOnce : MessageType.image,
           viewedByPartner: false,
           viewOnceDuration: viewOnceDuration,
+          replyToId: replyToId,
+          replyToText: replyToText,
+          replyToSenderUid: replyToSenderUid,
           createdAt: DateTime.now(),
         ).toMap());
     await _touch(
@@ -270,6 +291,36 @@ class ConversationService {
         .collection('messages')
         .doc(messageId)
         .delete();
+  }
+
+  // ── Send call message (logged after the call ends) ────────────
+
+  static Future<void> sendCallMessage(
+    String conversationId, {
+    required bool isVideo,
+    required bool missed,
+    int duration = 0,
+  }) async {
+    final uid = _myUid;
+    if (uid == null) return;
+    final preview = missed
+        ? (isVideo ? '📹 Appel vidéo manqué' : '📞 Appel manqué')
+        : (isVideo ? '📹 Appel vidéo' : '📞 Appel');
+    await _db
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('messages')
+        .add(ChatMessage(
+          id: '',
+          senderUid: uid,
+          type: MessageType.call,
+          viewedByPartner: false,
+          callIsVideo: isVideo,
+          callMissed: missed,
+          callDuration: duration,
+          createdAt: DateTime.now(),
+        ).toMap());
+    await _touch(conversationId, preview);
   }
 
   // ── Update conversation metadata after sending ─────────────────

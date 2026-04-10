@@ -1,12 +1,18 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../models/achievement_model.dart';
 import '../services/auth_service.dart';
 import '../services/couple_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/lock_service.dart';
 import '../utils/app_theme.dart';
+import '../widgets/user_avatar.dart';
 import 'achievements_screen.dart';
+import 'app_lock_screen.dart';
 import 'whatsapp_upload_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -138,6 +144,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           builder: (_) => const WhatsAppUploadScreen())),
                 ),
                 const SizedBox(height: 12),
+                _PinTile(),
+                const SizedBox(height: 12),
                 _ActionTile(
                   icon: Icons.logout_rounded,
                   label: 'Se déconnecter',
@@ -187,6 +195,10 @@ class _AvatarCardState extends State<_AvatarCard> {
       text: widget.profile?.pseudo ?? widget.user?.displayName ?? '',
     );
     String? selectedUrl = widget.profile?.avatarUrl;
+    String? pickedAvatarData =
+        (widget.profile?.avatarData?.isNotEmpty == true)
+            ? widget.profile!.avatarData
+            : null;
 
     showModalBottomSheet(
       context: context,
@@ -244,7 +256,83 @@ class _AvatarCardState extends State<_AvatarCard> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text('Choisir un avatar',
+                const Text('Photo personnalisée',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMedium)),
+                const SizedBox(height: 12),
+                if (pickedAvatarData != null) ...[  
+                  Center(
+                    child: CircleAvatar(
+                      radius: 44,
+                      backgroundImage:
+                          MemoryImage(base64Decode(pickedAvatarData!)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await ImagePicker().pickImage(
+                            source: ImageSource.gallery,
+                            imageQuality: 75,
+                            maxWidth: 480,
+                          );
+                          if (picked == null) return;
+                          final bytes =
+                              await File(picked.path).readAsBytes();
+                          if (!ctx.mounted) return;
+                          setSheet(() {
+                            pickedAvatarData = base64Encode(bytes);
+                            selectedUrl = null;
+                          });
+                        },
+                        icon: const Icon(Icons.photo_library_rounded, size: 18),
+                        label: const Text('Galerie'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await ImagePicker().pickImage(
+                            source: ImageSource.camera,
+                            imageQuality: 75,
+                            maxWidth: 480,
+                          );
+                          if (picked == null) return;
+                          final bytes =
+                              await File(picked.path).readAsBytes();
+                          if (!ctx.mounted) return;
+                          setSheet(() {
+                            pickedAvatarData = base64Encode(bytes);
+                            selectedUrl = null;
+                          });
+                        },
+                        icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                        label: const Text('Caméra'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                const Text('Ou choisir un avatar',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -257,9 +345,13 @@ class _AvatarCardState extends State<_AvatarCard> {
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
                   children: _avatarOptions.map((url) {
-                    final isSelected = selectedUrl == url;
+                    final isSelected =
+                        pickedAvatarData == null && selectedUrl == url;
                     return GestureDetector(
-                      onTap: () => setSheet(() => selectedUrl = url),
+                      onTap: () => setSheet(() {
+                        selectedUrl = url;
+                        pickedAvatarData = null;
+                      }),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         decoration: BoxDecoration(
@@ -317,7 +409,9 @@ class _AvatarCardState extends State<_AvatarCard> {
                       final pseudo = pseudoCtrl.text.trim();
                       await CoupleService.updateProfile(
                         pseudo: pseudo.isEmpty ? null : pseudo,
-                        avatarUrl: selectedUrl,
+                        avatarData: pickedAvatarData,
+                        avatarUrl:
+                            pickedAvatarData == null ? selectedUrl : null,
                       );
                       if (ctx.mounted) Navigator.pop(ctx);
                     },
@@ -343,7 +437,11 @@ class _AvatarCardState extends State<_AvatarCard> {
 
   @override
   Widget build(BuildContext context) {
-    final avatarUrl = widget.profile?.avatarUrl ?? widget.user?.photoURL;
+    final avatarData = widget.profile?.avatarData;
+    final hasCustomPhoto = avatarData != null && avatarData.isNotEmpty;
+    final avatarUrl = hasCustomPhoto
+        ? null
+        : (widget.profile?.avatarUrl ?? widget.user?.photoURL);
     final initial = (widget.profile?.pseudo?.isNotEmpty == true
             ? widget.profile!.pseudo![0]
             : widget.user?.displayName?.isNotEmpty == true
@@ -377,9 +475,12 @@ class _AvatarCardState extends State<_AvatarCard> {
               CircleAvatar(
                 radius: 36,
                 backgroundColor: AppColors.primarySoft,
-                backgroundImage:
-                    avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                child: avatarUrl == null
+                backgroundImage: hasCustomPhoto
+                    ? MemoryImage(base64Decode(avatarData!)) as ImageProvider
+                    : avatarUrl != null
+                        ? NetworkImage(avatarUrl)
+                        : null,
+                child: !hasCustomPhoto && avatarUrl == null
                     ? Text(initial,
                         style: const TextStyle(
                             fontSize: 26,
@@ -740,10 +841,12 @@ class _FriendTile extends StatelessWidget {
           CircleAvatar(
             radius: 20,
             backgroundColor: AppColors.accentLight,
-            backgroundImage: friend.avatarUrl != null
-                ? NetworkImage(friend.avatarUrl!)
-                : null,
-            child: friend.avatarUrl == null
+            backgroundImage: (friend.avatarData != null && friend.avatarData!.isNotEmpty)
+                ? MemoryImage(base64Decode(friend.avatarData!))
+                : friend.avatarUrl != null
+                    ? NetworkImage(friend.avatarUrl!) as ImageProvider
+                    : null,
+            child: (friend.avatarData == null || friend.avatarData!.isEmpty) && friend.avatarUrl == null
                 ? Text(initial,
                     style: const TextStyle(
                         color: AppColors.accent,
@@ -970,10 +1073,13 @@ class _PartnerLinkedState extends State<_PartnerLinked> {
         CircleAvatar(
           radius: 22,
           backgroundColor: AppColors.accentLight,
-          backgroundImage: _partnerProfile?.avatarUrl != null
-              ? NetworkImage(_partnerProfile!.avatarUrl!)
-              : null,
-          child: _partnerProfile?.avatarUrl == null
+          backgroundImage: (_partnerProfile?.avatarData != null && _partnerProfile!.avatarData!.isNotEmpty)
+              ? MemoryImage(base64Decode(_partnerProfile!.avatarData!)) as ImageProvider
+              : _partnerProfile?.avatarUrl != null
+                  ? NetworkImage(_partnerProfile!.avatarUrl!)
+                  : null,
+          child: (_partnerProfile?.avatarData == null || _partnerProfile!.avatarData!.isEmpty) &&
+                  _partnerProfile?.avatarUrl == null
               ? Text(initial,
                   style: const TextStyle(
                       color: AppColors.accent,
@@ -1465,6 +1571,135 @@ class _AchievementBadge extends StatelessWidget {
                       : Colors.grey.shade400,
                   fontWeight: FontWeight.w600)),
         ],
+      ),
+    );
+  }
+}
+
+// ─── PIN tile ─────────────────────────────────────────────────────────
+
+class _PinTile extends StatefulWidget {
+  const _PinTile();
+
+  @override
+  State<_PinTile> createState() => _PinTileState();
+}
+
+class _PinTileState extends State<_PinTile> {
+  bool _hasPin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    LockService.instance.hasPin().then((v) {
+      if (mounted) setState(() => _hasPin = v);
+    });
+  }
+
+  Future<void> _openPinSetup() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AppPinSetupScreen(
+          canCancel: true,
+          onSaved: () {
+            Navigator.pop(context);
+            setState(() => _hasPin = true);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Code PIN mis à jour ✓')),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _removePin() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Supprimer le PIN ?'),
+        content: const Text('L\'application n\'aura plus de verrou à l\'ouverture.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Annuler')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await LockService.instance.removePin();
+      if (mounted) setState(() => _hasPin = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _openPinSetup,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                blurRadius: 8,
+                offset: const Offset(0, 3))
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle),
+              child: const Icon(Icons.lock_rounded,
+                  color: AppColors.primary, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _hasPin ? 'Changer le code PIN' : 'Activer le verrou PIN',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: AppColors.textDark),
+                  ),
+                  Text(
+                    _hasPin
+                        ? 'PIN + biométrie activés'
+                        : 'Protéger l\'appli à l\'ouverture',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textMedium),
+                  ),
+                ],
+              ),
+            ),
+            if (_hasPin)
+              GestureDetector(
+                onTap: _removePin,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.lock_open_rounded,
+                      size: 18, color: Colors.red.shade400),
+                ),
+              ),
+            Icon(Icons.arrow_forward_ios_rounded,
+                size: 14, color: Colors.grey.shade400),
+          ],
+        ),
       ),
     );
   }

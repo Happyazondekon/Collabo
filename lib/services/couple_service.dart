@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'conversation_service.dart';
@@ -9,6 +11,7 @@ class UserProfile {
   final String? displayName;
   final String? pseudo;
   final String? avatarUrl;
+  final String? avatarData; // base64 custom profile photo (takes priority over avatarUrl)
   final String? email;
   final String? partnerUid;
   final String? coupleId;
@@ -21,6 +24,7 @@ class UserProfile {
     this.displayName,
     this.pseudo,
     this.avatarUrl,
+    this.avatarData,
     this.email,
     this.partnerUid,
     this.coupleId,
@@ -35,6 +39,7 @@ class UserProfile {
       displayName: map['displayName'] as String?,
       pseudo: map['pseudo'] as String?,
       avatarUrl: map['avatarUrl'] as String?,
+      avatarData: map['avatarData'] as String?,
       email: map['email'] as String?,
       partnerUid: map['partnerUid'] as String?,
       coupleId: map['coupleId'] as String?,
@@ -50,6 +55,7 @@ class StoryEntry {
   final String authorUid;
   final String authorName;
   final String? authorAvatarUrl;
+  final String? authorAvatarData;
   final String text;
   final DateTime createdAt;
   final Map<String, List<String>> reactions; // emoji → list of uids
@@ -59,6 +65,7 @@ class StoryEntry {
     required this.authorUid,
     required this.authorName,
     this.authorAvatarUrl,
+    this.authorAvatarData,
     required this.text,
     required this.createdAt,
     this.reactions = const {},
@@ -78,6 +85,7 @@ class StoryEntry {
       authorUid: map['authorUid'] as String? ?? '',
       authorName: map['authorName'] as String? ?? 'Joueur',
       authorAvatarUrl: map['authorAvatarUrl'] as String?,
+      authorAvatarData: map['authorAvatarData'] as String?,
       text: map['text'] as String? ?? '',
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       reactions: reactions,
@@ -88,6 +96,7 @@ class StoryEntry {
         'authorUid': authorUid,
         'authorName': authorName,
         if (authorAvatarUrl != null) 'authorAvatarUrl': authorAvatarUrl,
+        if (authorAvatarData != null) 'authorAvatarData': authorAvatarData,
         'text': text,
         'createdAt': Timestamp.fromDate(createdAt),
       };
@@ -98,6 +107,7 @@ class StoryComment {
   final String authorUid;
   final String authorName;
   final String? authorAvatarUrl;
+  final String? authorAvatarData;
   final String text;
   final DateTime createdAt;
 
@@ -106,6 +116,7 @@ class StoryComment {
     required this.authorUid,
     required this.authorName,
     this.authorAvatarUrl,
+    this.authorAvatarData,
     required this.text,
     required this.createdAt,
   });
@@ -116,6 +127,7 @@ class StoryComment {
         authorUid: map['authorUid'] as String? ?? '',
         authorName: map['authorName'] as String? ?? 'Joueur',
         authorAvatarUrl: map['authorAvatarUrl'] as String?,
+        authorAvatarData: map['authorAvatarData'] as String?,
         text: map['text'] as String? ?? '',
         createdAt:
             (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -216,12 +228,21 @@ class CoupleService {
   static Future<void> updateProfile({
     String? pseudo,
     String? avatarUrl,
+    String? avatarData, // non-empty = save custom photo; null = no change
   }) async {
     final uid = _myUid;
     if (uid == null) return;
     final updates = <String, dynamic>{};
     if (pseudo != null) updates['pseudo'] = pseudo;
-    if (avatarUrl != null) updates['avatarUrl'] = avatarUrl;
+    if (avatarData != null && avatarData.isNotEmpty) {
+      // Custom photo takes priority — clear URL-based avatar
+      updates['avatarData'] = avatarData;
+      updates['avatarUrl'] = FieldValue.delete();
+    } else if (avatarUrl != null) {
+      // Preset URL avatar — clear any custom photo
+      updates['avatarUrl'] = avatarUrl;
+      updates['avatarData'] = FieldValue.delete();
+    }
     if (updates.isEmpty) return;
     await _db.collection('users').doc(uid).update(updates);
   }
@@ -420,6 +441,7 @@ class CoupleService {
         ? data!['pseudo'] as String
         : (data?['displayName'] as String?) ?? _myName;
     final avatarUrl = data?['avatarUrl'] as String?;
+    final avatarData = data?['avatarData'] as String?;
     await _db
         .collection('couples')
         .doc(coupleId)
@@ -429,6 +451,8 @@ class CoupleService {
       'authorName': name,
       if (avatarUrl != null && avatarUrl.isNotEmpty)
         'authorAvatarUrl': avatarUrl,
+      if (avatarData != null && avatarData.isNotEmpty)
+        'authorAvatarData': avatarData,
       'text': text.trim(),
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -475,6 +499,7 @@ class CoupleService {
         ? data!['pseudo'] as String
         : (data?['displayName'] as String?) ?? _myName;
     final avatarUrl = data?['avatarUrl'] as String?;
+    final avatarData = data?['avatarData'] as String?;
     await _db
         .collection('couples')
         .doc(coupleId)
@@ -486,6 +511,8 @@ class CoupleService {
       'authorName': name,
       if (avatarUrl != null && avatarUrl.isNotEmpty)
         'authorAvatarUrl': avatarUrl,
+      if (avatarData != null && avatarData.isNotEmpty)
+        'authorAvatarData': avatarData,
       'text': text.trim(),
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -929,6 +956,59 @@ class RemoteGamesService {
         .collection('games')
         .doc('timed')
         .delete();
+  }
+
+  /// Emits the number of remote game modes where the partner is waiting for
+  /// the current user to join (status == 'waiting' and player1Uid != myUid).
+  /// Combines the competitive and timed document streams without rxdart.
+  static Stream<int> pendingRemoteGameStream(
+      String coupleId, String myUid) {
+    final db = FirebaseFirestore.instance;
+    final ctrl = StreamController<int>();
+    int comp = 0, timed = 0;
+
+    void emit() {
+      if (!ctrl.isClosed) ctrl.add(comp + timed);
+    }
+
+    final subComp = db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .snapshots()
+        .listen((s) {
+      final d = s.data();
+      comp = (d != null &&
+              d['status'] == 'waiting' &&
+              d['player1Uid'] != myUid)
+          ? 1
+          : 0;
+      emit();
+    });
+
+    final subTimed = db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .snapshots()
+        .listen((s) {
+      final d = s.data();
+      timed = (d != null &&
+              d['status'] == 'waiting' &&
+              d['player1Uid'] != myUid)
+          ? 1
+          : 0;
+      emit();
+    });
+
+    ctrl.onCancel = () {
+      subComp.cancel();
+      subTimed.cancel();
+    };
+
+    return ctrl.stream;
   }
 }
 

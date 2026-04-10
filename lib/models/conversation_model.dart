@@ -5,6 +5,7 @@ class ConversationModel {
   final List<String> members;
   final Map<String, String> names;   // uid → displayName
   final Map<String, String> avatars; // uid → avatarUrl
+  final Map<String, String> avatarDatas; // uid → base64 custom photo
   final String? lastMessage;
   final DateTime? lastMessageAt;
   final Map<String, int> unreadCounts; // uid → unread count
@@ -14,6 +15,7 @@ class ConversationModel {
     required this.members,
     required this.names,
     required this.avatars,
+    this.avatarDatas = const {},
     this.lastMessage,
     this.lastMessageAt,
     required this.unreadCounts,
@@ -30,6 +32,11 @@ class ConversationModel {
     return uid.isEmpty ? null : avatars[uid];
   }
 
+  String? partnerAvatarData(String myUid) {
+    final uid = partnerUid(myUid);
+    return uid.isEmpty ? null : avatarDatas[uid];
+  }
+
   int myUnread(String myUid) => unreadCounts[myUid] ?? 0;
 
   factory ConversationModel.fromMap(String id, Map<String, dynamic> map) {
@@ -38,6 +45,8 @@ class ConversationModel {
         (map['names'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? {};
     final avatarsRaw =
         (map['avatars'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? {};
+    final avatarDatasRaw =
+        (map['avatarDatas'] as Map?)?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? {};
     final unreadRaw = (map['unreadCounts'] as Map?) ?? {};
 
     return ConversationModel(
@@ -45,6 +54,7 @@ class ConversationModel {
       members: membersRaw,
       names: namesRaw,
       avatars: avatarsRaw,
+      avatarDatas: avatarDatasRaw,
       lastMessage: map['lastMessage'] as String?,
       lastMessageAt: (map['lastMessageAt'] as Timestamp?)?.toDate(),
       unreadCounts: {

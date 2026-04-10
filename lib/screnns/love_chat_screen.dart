@@ -6,7 +6,10 @@ import 'package:image_picker/image_picker.dart';
 import '../models/chat_message_model.dart';
 import '../services/conversation_service.dart';
 import '../services/couple_service.dart';
+import '../services/call_service.dart';
 import '../utils/app_theme.dart';
+import '../widgets/user_avatar.dart';
+import 'call_screen.dart';
 
 class LoveChatScreen extends StatefulWidget {
   final String conversationId;
@@ -34,14 +37,20 @@ class _LoveChatScreenState extends State<LoveChatScreen>
   bool _viewOnceMode = false;
   int _viewOnceDuration = 15; // seconds, chosen by sender
   bool _sending = false;
+  ChatMessage? _replyingTo;
 
   UserProfile? _myProfile;
   String _resolvedPartnerName = 'Mon amour';
   String? _resolvedPartnerAvatarUrl;
+  String? _resolvedPartnerAvatarData;
 
   @override
   void initState() {
     super.initState();
+    // Block screenshots / screen recording in chat
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    const MethodChannel('com.heyhappy.collabo/secure_screen')
+        .invokeMethod('setSecure', true).ignore();
     CoupleService.myProfileStream().first.then((p) {
       if (mounted) setState(() => _myProfile = p);
     });
@@ -54,6 +63,7 @@ class _LoveChatScreenState extends State<LoveChatScreen>
                 p.pseudo ?? p.displayName ?? widget.partnerName ?? 'Mon amour';
             _resolvedPartnerAvatarUrl =
                 widget.partnerAvatarUrl ?? p.avatarUrl;
+            _resolvedPartnerAvatarData = p.avatarData;
           });
         }
       });
@@ -69,6 +79,9 @@ class _LoveChatScreenState extends State<LoveChatScreen>
 
   @override
   void dispose() {
+    // Restore screenshot capability when leaving chat
+    const MethodChannel('com.heyhappy.collabo/secure_screen')
+        .invokeMethod('setSecure', false).ignore();
     _textCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
@@ -87,12 +100,53 @@ class _LoveChatScreenState extends State<LoveChatScreen>
     });
   }
 
+  Future<void> _startCall({required bool isVideo}) async {
+    if (_myProfile == null || widget.partnerUid == null) return;
+    final callId = await CallService.createCall(
+      receiverId: widget.partnerUid!,
+      callerName: _myProfile!.pseudo ?? _myProfile!.displayName ?? 'Moi',
+      callerAvatar: _myProfile!.avatarUrl,
+      isVideo: isVideo,
+      conversationId: widget.conversationId,
+    );
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          callId: callId,
+          isCaller: true,
+          isVideo: isVideo,
+          partnerName: _resolvedPartnerName,
+          partnerAvatar: _resolvedPartnerAvatarUrl,
+          conversationId: widget.conversationId,
+        ),
+      ),
+    );
+  }
+
   Future<void> _sendText() async {
     final text = _textCtrl.text.trim();
     if (text.isEmpty || _sending) return;
     _textCtrl.clear();
-    setState(() => _sending = true);
-    await ConversationService.sendText(widget.conversationId, text);
+    final reply = _replyingTo;
+    setState(() {
+      _sending = true;
+      _replyingTo = null;
+    });
+    await ConversationService.sendText(
+      widget.conversationId,
+      text,
+      replyToId: reply?.id,
+      replyToText: reply == null
+          ? null
+          : reply.type == MessageType.text
+              ? reply.text
+              : reply.type == MessageType.image
+                  ? '📷 Photo'
+                  : '🔥 Vue unique',
+      replyToSenderUid: reply?.senderUid,
+    );
     setState(() => _sending = false);
     _scrollToBottom();
   }
@@ -106,9 +160,20 @@ class _LoveChatScreenState extends State<LoveChatScreen>
     );
     if (picked == null) return;
     setState(() => _sending = true);
+    final reply = _replyingTo;
+    if (reply != null) setState(() => _replyingTo = null);
     await ConversationService.sendImage(
         widget.conversationId, File(picked.path), _viewOnceMode,
-        viewOnceDuration: _viewOnceDuration);
+        viewOnceDuration: _viewOnceDuration,
+        replyToId: reply?.id,
+        replyToText: reply == null
+            ? null
+            : reply.type == MessageType.text
+                ? reply.text
+                : reply.type == MessageType.image
+                    ? '📷 Photo'
+                    : '🔥 Vue unique',
+        replyToSenderUid: reply?.senderUid);
     if (mounted) setState(() => _sending = false);
     _scrollToBottom();
   }
@@ -278,6 +343,13 @@ class _LoveChatScreenState extends State<LoveChatScreen>
           _ChatAppBar(
             partnerName: _resolvedPartnerName,
             partnerAvatarUrl: _resolvedPartnerAvatarUrl,
+            partnerAvatarData: _resolvedPartnerAvatarData,
+            onAudioCall: widget.partnerUid != null
+                ? () => _startCall(isVideo: false)
+                : null,
+            onVideoCall: widget.partnerUid != null
+                ? () => _startCall(isVideo: true)
+                : null,
           ),
           Expanded(
             child: StreamBuilder<List<ChatMessage>>(
@@ -319,7 +391,11 @@ class _LoveChatScreenState extends State<LoveChatScreen>
                           message: msg,
                           isMe: isMe,
                           myAvatarUrl: _myProfile?.avatarUrl,
+                          myAvatarData: _myProfile?.avatarData,
                           partnerAvatarUrl: _resolvedPartnerAvatarUrl,
+                          partnerAvatarData: _resolvedPartnerAvatarData,
+                          myUid: _myProfile?.uid,
+                          partnerName: _resolvedPartnerName,
                           onReact: (emoji) => ConversationService.react(
                               widget.conversationId, msg.id, emoji),
                           onDelete: isMe
@@ -329,6 +405,8 @@ class _LoveChatScreenState extends State<LoveChatScreen>
                           onViewOnce: () =>
                               ConversationService.markViewOnceViewed(
                                   widget.conversationId, msg.id),
+                          onReply: () =>
+                              setState(() => _replyingTo = msg),
                         ),
                       ],
                     );
@@ -346,6 +424,13 @@ class _LoveChatScreenState extends State<LoveChatScreen>
             onImageTap: _showImageOptions,
             onViewOnceToggle: () =>
                 setState(() => _viewOnceMode = !_viewOnceMode),
+            replyingTo: _replyingTo,
+            replyToName: _replyingTo == null
+                ? null
+                : _replyingTo!.senderUid == _myProfile?.uid
+                    ? 'Moi'
+                    : _resolvedPartnerName,
+            onCancelReply: () => setState(() => _replyingTo = null),
           ),
         ],
       ),
@@ -358,9 +443,17 @@ class _LoveChatScreenState extends State<LoveChatScreen>
 class _ChatAppBar extends StatelessWidget {
   final String partnerName;
   final String? partnerAvatarUrl;
+  final String? partnerAvatarData;
+  final VoidCallback? onAudioCall;
+  final VoidCallback? onVideoCall;
 
-  const _ChatAppBar(
-      {required this.partnerName, required this.partnerAvatarUrl});
+  const _ChatAppBar({
+    required this.partnerName,
+    required this.partnerAvatarUrl,
+    this.partnerAvatarData,
+    this.onAudioCall,
+    this.onVideoCall,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -385,7 +478,10 @@ class _ChatAppBar extends StatelessWidget {
                 onPressed: () => Navigator.pop(context),
               ),
               _AvatarWithRing(
-                  url: partnerAvatarUrl, name: partnerName, size: 38),
+                  url: partnerAvatarUrl,
+                  data: partnerAvatarData,
+                  name: partnerName,
+                  size: 38),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -420,11 +516,20 @@ class _ChatAppBar extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.favorite_rounded,
-                    color: Colors.white, size: 22),
-                onPressed: () {},
-              ),
+              if (onAudioCall != null)
+                IconButton(
+                  icon: const Icon(Icons.call_rounded,
+                      color: Colors.white, size: 22),
+                  onPressed: onAudioCall,
+                  tooltip: 'Appel audio',
+                ),
+              if (onVideoCall != null)
+                IconButton(
+                  icon: const Icon(Icons.videocam_rounded,
+                      color: Colors.white, size: 22),
+                  onPressed: onVideoCall,
+                  tooltip: 'Appel vidéo',
+                ),
             ],
           ),
         ),
@@ -437,16 +542,24 @@ class _ChatAppBar extends StatelessWidget {
 
 class _AvatarWithRing extends StatelessWidget {
   final String? url;
+  final String? data;
   final String name;
   final double size;
 
   const _AvatarWithRing(
-      {required this.url, required this.name, required this.size});
+      {required this.url, this.data, required this.name, required this.size});
 
   @override
   Widget build(BuildContext context) {
-    final initial =
-        name.isNotEmpty ? name[0].toUpperCase() : '?';
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    final hasData = data != null && data!.isNotEmpty;
+    final hasUrl = url != null && url!.isNotEmpty;
+    ImageProvider? imgProvider;
+    if (hasData) {
+      imgProvider = MemoryImage(base64Decode(data!));
+    } else if (hasUrl) {
+      imgProvider = NetworkImage(url!);
+    }
     return Container(
       width: size + 4,
       height: size + 4,
@@ -458,8 +571,8 @@ class _AvatarWithRing extends StatelessWidget {
       child: CircleAvatar(
         radius: size / 2,
         backgroundColor: Colors.white.withValues(alpha: 0.3),
-        backgroundImage: url != null ? NetworkImage(url!) : null,
-        child: url == null
+        backgroundImage: imgProvider,
+        child: imgProvider == null
             ? Text(initial,
                 style: TextStyle(
                     color: Colors.white,
@@ -566,19 +679,29 @@ class _MessageBubble extends StatefulWidget {
   final ChatMessage message;
   final bool isMe;
   final String? myAvatarUrl;
+  final String? myAvatarData;
   final String? partnerAvatarUrl;
+  final String? partnerAvatarData;
+  final String? myUid;
+  final String? partnerName;
   final Future<void> Function(String?) onReact;
   final VoidCallback? onDelete;
   final VoidCallback onViewOnce;
+  final VoidCallback? onReply;
 
   const _MessageBubble({
     required this.message,
     required this.isMe,
     required this.myAvatarUrl,
+    this.myAvatarData,
     required this.partnerAvatarUrl,
+    this.partnerAvatarData,
+    this.myUid,
+    this.partnerName,
     required this.onReact,
     required this.onDelete,
     required this.onViewOnce,
+    this.onReply,
   });
 
   @override
@@ -661,8 +784,147 @@ class _MessageBubbleState extends State<_MessageBubble>
     );
   }
 
+  Widget _buildContentWithQuote() {
+    final msg = widget.message;
+    final isMe = widget.isMe;
+    final senderName = msg.replyToSenderUid == widget.myUid
+        ? 'Moi'
+        : (widget.partnerName ?? 'Partenaire');
+    final preview = msg.replyToText ?? '';
+    final previewTrimmed =
+        preview.length > 70 ? '${preview.substring(0, 70)}…' : preview;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.only(
+        topLeft: const Radius.circular(20),
+        topRight: const Radius.circular(20),
+        bottomLeft: Radius.circular(isMe ? 20 : 4),
+        bottomRight: Radius.circular(isMe ? 4 : 20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Quote header
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isMe
+                  ? Colors.black.withValues(alpha: 0.18)
+                  : AppColors.primarySoft,
+              border: Border(
+                left: BorderSide(
+                  color: isMe ? Colors.white70 : AppColors.primary,
+                  width: 3,
+                ),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  senderName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                    color: isMe ? Colors.white : AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  previewTrimmed,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isMe
+                        ? Colors.white.withValues(alpha: 0.8)
+                        : AppColors.textMedium,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Actual content
+          Padding(
+            padding: msg.type == MessageType.text
+                ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10)
+                : EdgeInsets.zero,
+            child: _buildContent(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildContent() {
     final msg = widget.message;
+
+    // ── Call message ────────────────────────────────────────────
+    if (msg.type == MessageType.call) {
+      final isMe = widget.isMe;
+      final missed = msg.callMissed;
+      final icon = missed
+          ? (msg.callIsVideo
+              ? Icons.videocam_off_rounded
+              : Icons.phone_missed_rounded)
+          : (msg.callIsVideo
+              ? Icons.videocam_rounded
+              : Icons.call_rounded);
+      final color = missed ? Colors.red.shade400 : Colors.green.shade500;
+      final label = missed
+          ? (msg.callIsVideo ? 'Appel vidéo manqué' : 'Appel manqué')
+          : (msg.callIsVideo ? 'Appel vidéo' : 'Appel');
+      String? durationLabel;
+      if (!missed && msg.callDuration > 0) {
+        final m = (msg.callDuration ~/ 60).toString().padLeft(2, '0');
+        final s = (msg.callDuration % 60).toString().padLeft(2, '0');
+        durationLabel = '$m:$s';
+      }
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: missed
+                    ? Colors.red.withValues(alpha: isMe ? 0.25 : 0.12)
+                    : Colors.green.withValues(alpha: isMe ? 0.25 : 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : AppColors.textDark,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                if (durationLabel != null)
+                  Text(
+                    durationLabel,
+                    style: TextStyle(
+                      color: isMe
+                          ? Colors.white.withValues(alpha: 0.75)
+                          : AppColors.textMedium,
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
 
     if (msg.type == MessageType.viewOnce) {
       // Already viewed
@@ -717,128 +979,149 @@ class _MessageBubbleState extends State<_MessageBubble>
     final hasReaction = widget.message.reaction?.isNotEmpty == true;
     final avatarUrl =
         isMe ? widget.myAvatarUrl : widget.partnerAvatarUrl;
+    final avatarData =
+        isMe ? widget.myAvatarData : widget.partnerAvatarData;
     final initial = isMe ? 'M' : (widget.partnerAvatarUrl != null ? '' : 'P');
+
+    final bubbleChild = GestureDetector(
+      onLongPress: _showOptions,
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: 3,
+          bottom: hasReaction ? 18 : 4,
+          left: isMe ? 60 : 0,
+          right: isMe ? 0 : 60,
+        ),
+        child: Row(
+          mainAxisAlignment:
+              isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isMe) ...[
+              UserAvatar(
+                name: widget.partnerName ?? 'P',
+                avatarUrl: avatarUrl,
+                avatarData: avatarData,
+                radius: 16,
+                backgroundColor: AppColors.accentLight,
+                textColor: AppColors.accent,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  padding: (widget.message.type == MessageType.text &&
+                          widget.message.replyToText == null)
+                      ? const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 11)
+                      : EdgeInsets.zero,
+                  decoration: BoxDecoration(
+                    gradient: isMe
+                        ? const LinearGradient(
+                            colors: [
+                              AppColors.primary,
+                              Color(0xFFE8547A)
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : null,
+                    color: isMe ? null : Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(20),
+                      topRight: const Radius.circular(20),
+                      bottomLeft: Radius.circular(isMe ? 20 : 4),
+                      bottomRight: Radius.circular(isMe ? 4 : 20),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isMe
+                            ? AppColors.primary.withValues(alpha: 0.3)
+                            : Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: widget.message.replyToText != null
+                      ? _buildContentWithQuote()
+                      : _buildContent(),
+                ),
+                // Reaction badge
+                if (hasReaction)
+                  Positioned(
+                    bottom: -14,
+                    right: isMe ? 6 : null,
+                    left: isMe ? null : 6,
+                    child: GestureDetector(
+                      onTap: () => widget.onReact(null), // remove
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                                color:
+                                    Colors.black.withValues(alpha: 0.1),
+                                blurRadius: 6)
+                          ],
+                        ),
+                        child: Text(widget.message.reaction!,
+                            style: const TextStyle(fontSize: 14)),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (isMe) ...[
+              const SizedBox(width: 8),
+              UserAvatar(
+                name: 'Moi',
+                avatarUrl: avatarUrl,
+                avatarData: avatarData,
+                radius: 16,
+                backgroundColor: AppColors.primarySoft,
+                textColor: AppColors.primary,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
 
     return ScaleTransition(
       scale: _popAnim,
-      child: GestureDetector(
-        onLongPress: _showOptions,
-        child: Padding(
-          padding: EdgeInsets.only(
-            top: 3,
-            bottom: hasReaction ? 18 : 4,
-            left: isMe ? 60 : 0,
-            right: isMe ? 0 : 60,
-          ),
-          child: Row(
-            mainAxisAlignment:
-                isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!isMe) ...[
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppColors.accentLight,
-                  backgroundImage: avatarUrl != null
-                      ? NetworkImage(avatarUrl)
-                      : null,
-                  child: avatarUrl == null
-                      ? Text(initial,
-                          style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.accent))
-                      : null,
-                ),
-                const SizedBox(width: 8),
-              ],
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 260),
-                    padding: widget.message.type == MessageType.text
-                        ? const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 11)
-                        : EdgeInsets.zero,
-                    decoration: BoxDecoration(
-                      gradient: isMe
-                          ? const LinearGradient(
-                              colors: [
-                                AppColors.primary,
-                                Color(0xFFE8547A)
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                          : null,
-                      color: isMe ? null : Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: Radius.circular(isMe ? 20 : 4),
-                        bottomRight: Radius.circular(isMe ? 4 : 20),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: isMe
-                              ? AppColors.primary.withValues(alpha: 0.3)
-                              : Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: _buildContent(),
-                  ),
-                  // Reaction badge
-                  if (hasReaction)
-                    Positioned(
-                      bottom: -14,
-                      right: isMe ? 6 : null,
-                      left: isMe ? null : 6,
-                      child: GestureDetector(
-                        onTap: () => widget.onReact(null), // remove
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                  color:
-                                      Colors.black.withValues(alpha: 0.1),
-                                  blurRadius: 6)
-                            ],
-                          ),
-                          child: Text(widget.message.reaction!,
-                              style: const TextStyle(fontSize: 14)),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              if (isMe) ...[
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppColors.primarySoft,
-                  backgroundImage: avatarUrl != null
-                      ? NetworkImage(avatarUrl)
-                      : null,
-                  child: avatarUrl == null
-                      ? const Text('M',
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary))
-                      : null,
-                ),
-              ],
-            ],
+      child: Dismissible(
+        key: ValueKey('reply_${widget.message.id}'),
+        direction: DismissDirection.startToEnd,
+        dismissThresholds: const {DismissDirection.startToEnd: 0.2},
+        confirmDismiss: (_) async {
+          if (widget.onReply != null) {
+            HapticFeedback.mediumImpact();
+            widget.onReply!();
+          }
+          return false;
+        },
+        background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 20),
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: AppColors.primarySoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.reply_rounded,
+                color: AppColors.primary, size: 20),
           ),
         ),
+        child: bubbleChild,
       ),
     );
   }
@@ -1220,6 +1503,9 @@ class _ChatInputBar extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback onImageTap;
   final VoidCallback onViewOnceToggle;
+  final ChatMessage? replyingTo;
+  final String? replyToName;
+  final VoidCallback? onCancelReply;
 
   const _ChatInputBar({
     required this.controller,
@@ -1229,11 +1515,14 @@ class _ChatInputBar extends StatelessWidget {
     required this.onSend,
     required this.onImageTap,
     required this.onViewOnceToggle,
+    this.replyingTo,
+    this.replyToName,
+    this.onCancelReply,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final inputRow = Container(
       padding: EdgeInsets.only(
         left: 12,
         right: 12,
@@ -1242,12 +1531,14 @@ class _ChatInputBar extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 16,
-              offset: const Offset(0, -4))
-        ],
+        boxShadow: replyingTo == null
+            ? [
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 16,
+                    offset: const Offset(0, -4))
+              ]
+            : null,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -1341,6 +1632,81 @@ class _ChatInputBar extends StatelessWidget {
                       color: Colors.white, size: 20),
             ),
           ),
+        ],
+      ),
+    );
+
+    if (replyingTo == null) return inputRow;
+
+    final preview = replyingTo!.type == MessageType.text
+        ? (replyingTo!.text ?? '')
+        : replyingTo!.type == MessageType.image
+            ? '📷 Photo'
+            : '🔥 Vue unique';
+    final previewTrimmed =
+        preview.length > 60 ? '${preview.substring(0, 60)}…' : preview;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, -4))
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Reply preview banner
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.primarySoft,
+              border: Border(
+                top: BorderSide(
+                    color: AppColors.primary.withValues(alpha: 0.2)),
+                left: const BorderSide(color: AppColors.primary, width: 3),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.reply_rounded,
+                    color: AppColors.primary, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        replyToName ?? 'Partenaire',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      Text(
+                        previewTrimmed,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppColors.textMedium),
+                      ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: onCancelReply,
+                  child: const Icon(Icons.close_rounded,
+                      size: 18, color: AppColors.textMedium),
+                ),
+              ],
+            ),
+          ),
+          inputRow,
         ],
       ),
     );

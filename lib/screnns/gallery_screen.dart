@@ -223,18 +223,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const SizedBox(
-            width: 100,
-            height: 100,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.primarySoft,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.photo_library_rounded, size: 50, color: AppColors.primary),
-            ),
+          Image.asset(
+            'assets/couple_gallery.webp',
+            width: 170,
+            height: 170,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           const Text(
             'Vos souvenirs en photos',
             style: TextStyle(

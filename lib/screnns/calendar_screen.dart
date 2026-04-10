@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '../models/event_model.dart';
+import '../services/notification_service.dart';
 import '../utils/app_theme.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -60,11 +61,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
         .snapshots()
         .listen((snap) {
       final Map<DateTime, List<EventModel>> map = {};
+      final List<EventModel> allEvents = [];
       for (final doc in snap.docs) {
         final event = EventModel.fromMap(doc.id, doc.data());
         final key = DateTime(event.date.year, event.date.month, event.date.day);
         map[key] = [...(map[key] ?? []), event];
+        allEvents.add(event);
       }
+      // Reprogrammer les rappels de notifications à chaque changement
+      CollaboNotificationService()
+          .scheduleCalendarEventReminders(allEvents);
       if (mounted) setState(() => _events = map);
     });
   }
