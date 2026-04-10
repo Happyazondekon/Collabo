@@ -7,6 +7,10 @@ import 'game_screen.dart';
 import 'cooperative_game_screen.dart';
 import 'timed_game_screen.dart';
 import 'whatsapp_upload_screen.dart';
+import 'crossword_game_screen.dart';
+import 'remote_competitive_screen.dart';
+import 'remote_coop_screen.dart';
+import 'remote_timed_screen.dart';
 import '../models/game_difficulty.dart';
 
 class GameModesScreen extends StatefulWidget {
@@ -27,6 +31,9 @@ class _GameModesScreenState extends State<GameModesScreen> {
   StreamSubscription<UserProfile?>? _profileSub;
   String _player1Name = 'Joueur 1';
   String _player2Name = 'Joueur 2';
+  String? _coupleId;
+  String? _partnerUid;
+  String? _myUid;
   List<String>? _customWords; // null = not loaded yet, [] = no words
   bool _loadingWords = true;
 
@@ -47,7 +54,13 @@ class _GameModesScreenState extends State<GameModesScreen> {
             ? partner!.pseudo!
             : partner?.displayName ?? 'Joueur 2';
       }
-      if (mounted) setState(() { _player1Name = name1; _player2Name = name2; });
+      if (mounted) setState(() {
+        _player1Name = name1;
+        _player2Name = name2;
+        _coupleId = profile?.coupleId;
+        _partnerUid = profile?.partnerUid;
+        _myUid = profile?.uid;
+      });
     });
   }
 
@@ -91,54 +104,107 @@ class _GameModesScreenState extends State<GameModesScreen> {
         description: 'Défiez votre partenaire et montrez qui est le plus agile.',
         icon: Icons.sports_kabaddi_rounded,
         gradient: AppColors.competitiveGradient,
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-          builder: (_) => GameScreen(
-            primaryColor: widget.primaryColor,
-            accentColor: widget.accentColor,
-            difficulty: GameDifficulty.normal,
-            customWords: words,
-            player1Name: _player1Name,
-            player2Name: _player2Name,
-          ),
-        )),
+        onTap: () => _showPlayModeSheet(
+          title: 'Compétitif',
+          onLocal: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => GameScreen(
+              primaryColor: widget.primaryColor,
+              accentColor: widget.accentColor,
+              difficulty: GameDifficulty.normal,
+              customWords: words,
+              player1Name: _player1Name,
+              player2Name: _player2Name,
+            ),
+          )),
+          onRemote: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => RemoteCompetitiveScreen(
+              coupleId: _coupleId!,
+              myUid: _myUid!,
+              partnerUid: _partnerUid!,
+              myName: _player1Name,
+              partnerName: _player2Name,
+              words: words,
+            ),
+          )),
+        ),
       ),
       _mode(
         title: 'Coopératif',
         description: "L'union fait la force.\nTravaillez ensemble pour gagner.",
         icon: Icons.handshake_rounded,
         gradient: AppColors.cooperativeGradient,
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-          builder: (_) => CooperativeGameScreen(
-            primaryColor: widget.primaryColor,
-            accentColor: widget.accentColor,
-            customWords: words,
-          ),
-        )),
+        onTap: () => _showPlayModeSheet(
+          title: 'Coopératif',
+          onLocal: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => CooperativeGameScreen(
+              primaryColor: widget.primaryColor,
+              accentColor: widget.accentColor,
+              customWords: words,
+            ),
+          )),
+          onRemote: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => RemoteCoopScreen(
+              coupleId: _coupleId!,
+              myUid: _myUid!,
+              partnerUid: _partnerUid!,
+              myName: _player1Name,
+              partnerName: _player2Name,
+              words: words,
+            ),
+          )),
+        ),
       ),
       _mode(
         title: 'Contre-la-Montre',
         description: 'Rapide et intense.\nBattez le chrono avant la fin.',
         icon: Icons.timer_rounded,
         gradient: AppColors.timedGradient,
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-          builder: (_) => TimedGameScreen(
-            primaryColor: widget.primaryColor,
-            accentColor: widget.accentColor,
-            customWords: words,
-          ),
-        )),
+        onTap: () => _showPlayModeSheet(
+          title: 'Contre-la-Montre',
+          onLocal: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => TimedGameScreen(
+              primaryColor: widget.primaryColor,
+              accentColor: widget.accentColor,
+              customWords: words,
+            ),
+          )),
+          onRemote: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => RemoteTimedScreen(
+              coupleId: _coupleId!,
+              myUid: _myUid!,
+              partnerUid: _partnerUid!,
+              myName: _player1Name,
+              partnerName: _player2Name,
+              words: words,
+            ),
+          )),
+        ),
       ),
       _mode(
-        title: 'Personnalisé',
-        description: 'Créez vos propres règles pour une session unique.',
-        icon: Icons.tune_rounded,
+        title: 'Mots Croisés',
+        description: 'Jouez à distance.\nL\'un propose un mot, l\'autre devine.',
+        icon: Icons.grid_on_rounded,
         gradient: AppColors.customGradient,
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bientôt disponible !'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        ),
+        onTap: () {
+          if (_coupleId == null || _partnerUid == null || _myUid == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Liez votre compte avec votre partenaire pour jouer à ce mode.'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            return;
+          }
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => CrosswordGameScreen(
+              coupleId: _coupleId!,
+              myUid: _myUid!,
+              partnerUid: _partnerUid!,
+              myName: _player1Name,
+              partnerName: _player2Name,
+            ),
+          ));
+        },
       ),
     ];
 
@@ -230,6 +296,76 @@ class _GameModesScreenState extends State<GameModesScreen> {
     );
   }
 
+  void _showPlayModeSheet({
+    required String title,
+    required VoidCallback onLocal,
+    required VoidCallback onRemote,
+  }) {
+    final hasCouple = _coupleId != null && _partnerUid != null && _myUid != null;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Comment jouer ?',
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark),
+            ),
+            const SizedBox(height: 16),
+            _PlayOptionTile(
+              icon: Icons.phone_iphone_rounded,
+              title: 'Sur ce téléphone',
+              subtitle: 'Jouez à tour de rôle sur le même appareil.',
+              color: AppColors.textDark,
+              onTap: () {
+                Navigator.pop(context);
+                onLocal();
+              },
+            ),
+            const SizedBox(height: 12),
+            _PlayOptionTile(
+              icon: Icons.wifi_rounded,
+              title: 'À distance',
+              subtitle: hasCouple
+                  ? 'Chacun joue sur son propre téléphone.'
+                  : 'Liez votre compte avec votre partenaire pour jouer à distance.',
+              color: hasCouple ? AppColors.primary : AppColors.textLight,
+              disabled: !hasCouple,
+              onTap: hasCouple
+                  ? () {
+                      Navigator.pop(context);
+                      onRemote();
+                    }
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Map<String, dynamic> _mode({
     required String title,
     required String description,
@@ -244,6 +380,84 @@ class _GameModesScreenState extends State<GameModesScreen> {
         'gradient': gradient,
         'onTap': onTap,
       };
+}
+
+class _PlayOptionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final bool disabled;
+  final VoidCallback? onTap;
+
+  const _PlayOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    this.disabled = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: disabled ? 0.45 : 1.0,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: disabled
+                ? Colors.grey.shade50
+                : color.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: disabled
+                  ? Colors.grey.shade200
+                  : color.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: disabled ? AppColors.textLight : color)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textMedium,
+                            height: 1.4)),
+                  ],
+                ),
+              ),
+              if (!disabled)
+                Icon(Icons.arrow_forward_ios_rounded,
+                    size: 14, color: color.withValues(alpha: 0.6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _UploadPromptScreen extends StatelessWidget {

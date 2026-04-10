@@ -19,37 +19,92 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _addPhoto() async {
     String title = '';
+    DateTime photoDate = DateTime.now();
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Ajouter une photo',
-            style: TextStyle(fontWeight: FontWeight.bold)),
-        content: TextField(
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Titre (ex: Notre premier voyage)',
-            border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Ajouter une photo',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Titre (ex: Notre premier voyage)',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (v) => title = v,
+              ),
+              const SizedBox(height: 14),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: photoDate,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                    helpText: 'Date de la photo',
+                    builder: (context, child) => Theme(
+                      data: ThemeData.light().copyWith(
+                        colorScheme: const ColorScheme.light(
+                            primary: AppColors.primary),
+                        dialogTheme: const DialogThemeData(
+                            backgroundColor: Colors.white),
+                      ),
+                      child: child!,
+                    ),
+                  );
+                  if (picked != null) setDialog(() => photoDate = picked);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today_rounded,
+                          color: AppColors.primary, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Date : ${photoDate.day}/${photoDate.month}/${photoDate.year}',
+                        style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13),
+                      ),
+                      const Spacer(),
+                      const Text('Modifier',
+                          style: TextStyle(
+                              color: AppColors.textLight, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-          onChanged: (v) => title = v,
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Annuler')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary),
+              child: const Text('Choisir la photo',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Choisir la photo',
-                style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
     if (confirmed != true || _coupleId == null) return;
 
     setState(() => _uploading = true);
-    await _service.pickAndAddPhoto(_coupleId!, title: title);
+    await _service.pickAndAddPhoto(_coupleId!,
+        title: title, photoDate: photoDate);
     if (mounted) setState(() => _uploading = false);
   }
 
@@ -298,7 +353,7 @@ class _PhotoCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _formatDate(photo.savedAt),
+                    _formatDate(photo.photoDate ?? photo.savedAt),
                     style: const TextStyle(fontSize: 11, color: AppColors.textLight),
                   ),
                 ],

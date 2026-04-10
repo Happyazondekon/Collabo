@@ -1,0 +1,2 @@
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/RelWithDebInfo/66166r1e/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/ELITEBOOK/StudioProjects/collabo/android/app/.cxx/RelWithDebInfo/66166r1e/x86_64/CMakeFiles/rebuild_cache.dir

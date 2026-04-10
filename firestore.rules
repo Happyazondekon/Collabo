@@ -46,6 +46,12 @@ service cloud.firestore {
       match /stories/{storyId} {
         allow read, write: if request.auth != null
                            && request.auth.uid in get(/databases/$(database)/documents/couples/$(coupleId)).data.members;
+
+        // ─── Story comments (sub-sub-collection) ────────────────
+        match /comments/{commentId} {
+          allow read, write: if request.auth != null
+                             && request.auth.uid in get(/databases/$(database)/documents/couples/$(coupleId)).data.members;
+        }
       }
 
       // ─── Calendar events (sub-collection) ─────────────────────
@@ -62,6 +68,12 @@ service cloud.firestore {
 
       // ─── Words custom list (sub-collection) ───────────────────
       match /words/{wordId} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid in get(/databases/$(database)/documents/couples/$(coupleId)).data.members;
+      }
+
+      // ─── Games (crossword etc.) (sub-collection) ──────────────
+      match /games/{gameId} {
         allow read, write: if request.auth != null
                            && request.auth.uid in get(/databases/$(database)/documents/couples/$(coupleId)).data.members;
       }

@@ -40,13 +40,21 @@ class ConversationService {
     final myUid = _myUid;
     if (myUid == null) throw 'Non connecté';
 
+    // Load my Firestore profile to get pseudo + avatarUrl
+    final myDoc = await _db.collection('users').doc(myUid).get();
+    final myData = myDoc.data();
+    final myName = (myData?['pseudo'] as String?)?.isNotEmpty == true
+        ? myData!['pseudo'] as String
+        : (myData?['displayName'] as String?) ??
+            _auth.currentUser?.displayName ??
+            'Moi';
+    final myAvatar = myData?['avatarUrl'] as String?;
+
     final convId = buildId(myUid, partnerUid);
     final ref = _db.collection('conversations').doc(convId);
     final snap = await ref.get();
 
     if (!snap.exists) {
-      final myUser = _auth.currentUser;
-      final myName = myUser?.displayName ?? 'Moi';
       await ref.set({
         'members': [myUid, partnerUid],
         'names': {
@@ -54,12 +62,23 @@ class ConversationService {
           partnerUid: partnerName,
         },
         'avatars': {
+          if (myAvatar != null && myAvatar.isNotEmpty) myUid: myAvatar,
           if (partnerAvatarUrl != null && partnerAvatarUrl.isNotEmpty)
             partnerUid: partnerAvatarUrl,
         },
         'unreadCounts': {myUid: 0, partnerUid: 0},
         'createdAt': FieldValue.serverTimestamp(),
       });
+    } else {
+      // Update names/avatars in case pseudo or avatar changed
+      final updates = <String, dynamic>{
+        'names.$myUid': myName,
+        'names.$partnerUid': partnerName,
+        if (partnerAvatarUrl != null && partnerAvatarUrl.isNotEmpty)
+          'avatars.$partnerUid': partnerAvatarUrl,
+        if (myAvatar != null && myAvatar.isNotEmpty) 'avatars.$myUid': myAvatar,
+      };
+      await ref.update(updates);
     }
     return convId;
   }

@@ -10,6 +10,7 @@ class GalleryPhoto {
   final String title;
   final String addedBy;
   final DateTime savedAt;
+  final DateTime? photoDate; // user-chosen date for the photo
 
   GalleryPhoto({
     required this.id,
@@ -17,6 +18,7 @@ class GalleryPhoto {
     required this.title,
     required this.addedBy,
     required this.savedAt,
+    this.photoDate,
   });
 
   factory GalleryPhoto.fromMap(String id, Map<String, dynamic> map) =>
@@ -26,6 +28,7 @@ class GalleryPhoto {
         title: map['title'] as String? ?? 'Photo',
         addedBy: map['addedBy'] as String? ?? '',
         savedAt: (map['savedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        photoDate: (map['photoDate'] as Timestamp?)?.toDate(),
       );
 }
 
@@ -50,7 +53,8 @@ class GalleryService {
   }
 
   /// Pick from gallery and upload. Returns false if user cancelled.
-  Future<bool> pickAndAddPhoto(String coupleId, {String title = ''}) async {
+  Future<bool> pickAndAddPhoto(String coupleId,
+      {String title = '', DateTime? photoDate}) async {
     final picked = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 75,
@@ -73,6 +77,7 @@ class GalleryService {
       'title': title.trim().isEmpty ? 'Photo' : title.trim(),
       'addedBy': uid,
       'savedAt': FieldValue.serverTimestamp(),
+      if (photoDate != null) 'photoDate': Timestamp.fromDate(photoDate),
     });
     return true;
   }

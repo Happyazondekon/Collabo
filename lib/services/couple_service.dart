@@ -49,33 +49,77 @@ class StoryEntry {
   final String id;
   final String authorUid;
   final String authorName;
+  final String? authorAvatarUrl;
   final String text;
   final DateTime createdAt;
+  final Map<String, List<String>> reactions; // emoji → list of uids
 
   StoryEntry({
     required this.id,
     required this.authorUid,
     required this.authorName,
+    this.authorAvatarUrl,
     required this.text,
     required this.createdAt,
+    this.reactions = const {},
   });
 
   factory StoryEntry.fromMap(String id, Map<String, dynamic> map) {
+    final rawReactions = map['reactions'];
+    final reactions = <String, List<String>>{};
+    if (rawReactions is Map) {
+      for (final e in rawReactions.entries) {
+        reactions[e.key as String] =
+            List<String>.from(e.value as List? ?? []);
+      }
+    }
     return StoryEntry(
       id: id,
       authorUid: map['authorUid'] as String? ?? '',
       authorName: map['authorName'] as String? ?? 'Joueur',
+      authorAvatarUrl: map['authorAvatarUrl'] as String?,
       text: map['text'] as String? ?? '',
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      reactions: reactions,
     );
   }
 
   Map<String, dynamic> toMap() => {
         'authorUid': authorUid,
         'authorName': authorName,
+        if (authorAvatarUrl != null) 'authorAvatarUrl': authorAvatarUrl,
         'text': text,
         'createdAt': Timestamp.fromDate(createdAt),
       };
+}
+
+class StoryComment {
+  final String id;
+  final String authorUid;
+  final String authorName;
+  final String? authorAvatarUrl;
+  final String text;
+  final DateTime createdAt;
+
+  StoryComment({
+    required this.id,
+    required this.authorUid,
+    required this.authorName,
+    this.authorAvatarUrl,
+    required this.text,
+    required this.createdAt,
+  });
+
+  factory StoryComment.fromMap(String id, Map<String, dynamic> map) =>
+      StoryComment(
+        id: id,
+        authorUid: map['authorUid'] as String? ?? '',
+        authorName: map['authorName'] as String? ?? 'Joueur',
+        authorAvatarUrl: map['authorAvatarUrl'] as String?,
+        text: map['text'] as String? ?? '',
+        createdAt:
+            (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      );
 }
 
 class CoupleRequest {
@@ -369,13 +413,22 @@ class CoupleService {
   static Future<void> addStory(String coupleId, String text) async {
     final uid = _myUid;
     if (uid == null) return;
+    // Read Firestore profile to get current pseudo + avatarUrl
+    final doc = await _db.collection('users').doc(uid).get();
+    final data = doc.data();
+    final name = (data?['pseudo'] as String?)?.isNotEmpty == true
+        ? data!['pseudo'] as String
+        : (data?['displayName'] as String?) ?? _myName;
+    final avatarUrl = data?['avatarUrl'] as String?;
     await _db
         .collection('couples')
         .doc(coupleId)
         .collection('stories')
         .add({
       'authorUid': uid,
-      'authorName': _myName,
+      'authorName': name,
+      if (avatarUrl != null && avatarUrl.isNotEmpty)
+        'authorAvatarUrl': avatarUrl,
       'text': text.trim(),
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -389,4 +442,602 @@ class CoupleService {
         .doc(storyId)
         .delete();
   }
+
+  // ── Story reactions & comments ────────────────────────────────
+
+  static Future<void> toggleReaction(
+      String coupleId, String storyId, String emoji) async {
+    final uid = _myUid;
+    if (uid == null) return;
+    final ref = _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('stories')
+        .doc(storyId);
+    final snap = await ref.get();
+    final reactions =
+        (snap.data()?['reactions'] as Map<dynamic, dynamic>?) ?? {};
+    final uids = List<String>.from(reactions[emoji] as List? ?? []);
+    if (uids.contains(uid)) {
+      await ref.update({'reactions.$emoji': FieldValue.arrayRemove([uid])});
+    } else {
+      await ref.update({'reactions.$emoji': FieldValue.arrayUnion([uid])});
+    }
+  }
+
+  static Future<void> addComment(
+      String coupleId, String storyId, String text) async {
+    final uid = _myUid;
+    if (uid == null) return;
+    final doc = await _db.collection('users').doc(uid).get();
+    final data = doc.data();
+    final name = (data?['pseudo'] as String?)?.isNotEmpty == true
+        ? data!['pseudo'] as String
+        : (data?['displayName'] as String?) ?? _myName;
+    final avatarUrl = data?['avatarUrl'] as String?;
+    await _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('stories')
+        .doc(storyId)
+        .collection('comments')
+        .add({
+      'authorUid': uid,
+      'authorName': name,
+      if (avatarUrl != null && avatarUrl.isNotEmpty)
+        'authorAvatarUrl': avatarUrl,
+      'text': text.trim(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Stream<List<StoryComment>> commentsStream(
+      String coupleId, String storyId) {
+    return _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('stories')
+        .doc(storyId)
+        .collection('comments')
+        .orderBy('createdAt')
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => StoryComment.fromMap(d.id, d.data()))
+            .toList());
+  }
+
+  // ── Crossword game ───────────────────────────────────────────────
+
+  static Stream<CrosswordSession?> crosswordStream(String coupleId) {
+    return _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword')
+        .snapshots()
+        .map((s) => s.exists ? CrosswordSession.fromMap(s.data()!) : null);
+  }
+
+  static Future<void> startCrossword({
+    required String coupleId,
+    required String myUid,
+    required String partnerUid,
+  }) async {
+    await _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword')
+        .set({
+      'word': '',
+      'clue': '',
+      'guessedLetters': [],
+      'definisseurUid': myUid,
+      'devineurUid': partnerUid,
+      'status': 'setup',
+      'maxAttempts': 6,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> submitCrosswordWord({
+    required String coupleId,
+    required String word,
+    required String clue,
+  }) async {
+    await _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword')
+        .update({
+      'word': word.trim().toUpperCase(),
+      'clue': clue.trim(),
+      'guessedLetters': [],
+      'status': 'playing',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> guessCrosswordLetter(
+      String coupleId, String letter) async {
+    final ref = _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword');
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final session = CrosswordSession.fromMap(snap.data()!);
+    final upper = letter.toUpperCase();
+    if (session.guessedLetters.contains(upper)) return;
+    final newGuesses = [...session.guessedLetters, upper];
+    final wrongCount =
+        newGuesses.where((l) => !session.word.contains(l)).length;
+    final isWon = session.word
+        .split('')
+        .every((c) => c == ' ' || newGuesses.contains(c));
+    final isLost = wrongCount >= session.maxAttempts;
+    final status = isWon ? 'won' : (isLost ? 'lost' : 'playing');
+    await ref.update({
+      'guessedLetters': newGuesses,
+      'status': status,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> resetCrossword(String coupleId) async {
+    await _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword')
+        .delete();
+  }
+
+  static Future<void> swapCrosswordRoles({
+    required String coupleId,
+    required String newDefinisseurUid,
+    required String newDevineurUid,
+  }) async {
+    await _db
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('crossword')
+        .set({
+      'word': '',
+      'clue': '',
+      'guessedLetters': [],
+      'definisseurUid': newDefinisseurUid,
+      'devineurUid': newDevineurUid,
+      'status': 'setup',
+      'maxAttempts': 6,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+// ─── Crossword session model ───────────────────────────────────────
+
+class CrosswordSession {
+  final String word;
+  final String clue;
+  final List<String> guessedLetters;
+  final String definisseurUid;
+  final String devineurUid;
+  final String status; // setup | playing | won | lost
+  final int maxAttempts;
+
+  CrosswordSession({
+    required this.word,
+    required this.clue,
+    required this.guessedLetters,
+    required this.definisseurUid,
+    required this.devineurUid,
+    required this.status,
+    required this.maxAttempts,
+  });
+
+  factory CrosswordSession.fromMap(Map<String, dynamic> map) {
+    return CrosswordSession(
+      word: (map['word'] as String? ?? '').toUpperCase(),
+      clue: map['clue'] as String? ?? '',
+      guessedLetters:
+          (map['guessedLetters'] as List?)?.cast<String>() ?? [],
+      definisseurUid: map['definisseurUid'] as String? ?? '',
+      devineurUid: map['devineurUid'] as String? ?? '',
+      status: map['status'] as String? ?? 'setup',
+      maxAttempts: map['maxAttempts'] as int? ?? 6,
+    );
+  }
+
+  List<String> get wrongGuesses =>
+      guessedLetters.where((l) => !word.contains(l)).toList();
+
+  String get displayWord => word
+      .split('')
+      .map((c) => c == ' ' ? '  ' : (guessedLetters.contains(c) ? c : '_'))
+      .join(' ');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Remote game service methods (competitive, cooperative, timed)
+// ─────────────────────────────────────────────────────────────────
+
+class RemoteGamesService {
+  // ── Remote Competitive ─────────────────────────────────────────
+
+  static Stream<RemoteCompetitiveSession?> remoteCompetitiveStream(
+      String coupleId) {
+    return FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .snapshots()
+        .map((s) =>
+            s.exists ? RemoteCompetitiveSession.fromMap(s.data()!) : null);
+  }
+
+  static Future<void> createRemoteCompetitive({
+    required String coupleId,
+    required String myUid,
+    int targetScore = 10,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .set({
+      'player1Uid': myUid,
+      'player2Uid': null,
+      'player1Score': 0,
+      'player2Score': 0,
+      'status': 'waiting',
+      'targetScore': targetScore,
+      'winner': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> joinRemoteCompetitive({
+    required String coupleId,
+    required String myUid,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .update({
+      'player2Uid': myUid,
+      'status': 'playing',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> updateCompetitiveScore({
+    required String coupleId,
+    required String myUid,
+    required RemoteCompetitiveSession session,
+    required int newScore,
+  }) async {
+    final isP1 = session.player1Uid == myUid;
+    final Map<String, dynamic> data = {
+      isP1 ? 'player1Score' : 'player2Score': newScore,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (newScore >= session.targetScore) {
+      data['status'] = 'finished';
+      data['winner'] = myUid;
+    }
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .update(data);
+  }
+
+  static Future<void> deleteRemoteCompetitive(String coupleId) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('competitive')
+        .delete();
+  }
+
+  // ── Remote Cooperative ─────────────────────────────────────────
+
+  static Stream<RemoteCoopSession?> remoteCoopStream(String coupleId) {
+    return FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('cooperative')
+        .snapshots()
+        .map((s) => s.exists ? RemoteCoopSession.fromMap(s.data()!) : null);
+  }
+
+  static Future<void> startRemoteCoop({
+    required String coupleId,
+    required String voyantUid,
+    required String devineurUid,
+    required String firstWord,
+    int targetScore = 10,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('cooperative')
+        .set({
+      'voyantUid': voyantUid,
+      'devineurUid': devineurUid,
+      'currentWord': firstWord,
+      'teamScore': 0,
+      'wordsGuessed': 0,
+      'targetScore': targetScore,
+      'status': 'playing',
+      'pendingNewWord': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<bool> submitCoopGuess({
+    required String coupleId,
+    required String guess,
+  }) async {
+    final ref = FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('cooperative');
+    final snap = await ref.get();
+    if (!snap.exists) return false;
+    final session = RemoteCoopSession.fromMap(snap.data()!);
+    if (guess.trim().toLowerCase() != session.currentWord.toLowerCase()) {
+      return false;
+    }
+    final newScore = session.teamScore + 5;
+    final newWords = session.wordsGuessed + 1;
+    final finished = newScore >= session.targetScore;
+    await ref.update({
+      'teamScore': newScore,
+      'wordsGuessed': newWords,
+      'currentWord': '',
+      'pendingNewWord': true,
+      'status': finished ? 'finished' : 'playing',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    return true;
+  }
+
+  static Future<void> updateCoopWord({
+    required String coupleId,
+    required String newWord,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('cooperative')
+        .update({
+      'currentWord': newWord,
+      'pendingNewWord': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> deleteRemoteCoop(String coupleId) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('cooperative')
+        .delete();
+  }
+
+  // ── Remote Timed ──────────────────────────────────────────────
+
+  static Stream<RemoteTimedSession?> remoteTimedStream(String coupleId) {
+    return FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .snapshots()
+        .map((s) => s.exists ? RemoteTimedSession.fromMap(s.data()!) : null);
+  }
+
+  static Future<void> createRemoteTimed({
+    required String coupleId,
+    required String myUid,
+    int durationSeconds = 60,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .set({
+      'player1Uid': myUid,
+      'player2Uid': null,
+      'player1Score': 0,
+      'player2Score': 0,
+      'status': 'waiting',
+      'startTime': null,
+      'durationSeconds': durationSeconds,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> joinRemoteTimed({
+    required String coupleId,
+    required String myUid,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .update({
+      'player2Uid': myUid,
+      'status': 'playing',
+      'startTime': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> updateTimedScore({
+    required String coupleId,
+    required String myUid,
+    required RemoteTimedSession session,
+    required int score,
+  }) async {
+    final isP1 = session.player1Uid == myUid;
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .update({
+      isP1 ? 'player1Score' : 'player2Score': score,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> finishRemoteTimed(String coupleId) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .update({
+      'status': 'finished',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  static Future<void> deleteRemoteTimed(String coupleId) async {
+    await FirebaseFirestore.instance
+        .collection('couples')
+        .doc(coupleId)
+        .collection('games')
+        .doc('timed')
+        .delete();
+  }
+}
+
+// ─── Remote session models ────────────────────────────────────────
+
+class RemoteCompetitiveSession {
+  final String player1Uid;
+  final String? player2Uid;
+  final int player1Score;
+  final int player2Score;
+  final String status; // waiting | playing | finished
+  final int targetScore;
+  final String? winner;
+
+  RemoteCompetitiveSession({
+    required this.player1Uid,
+    this.player2Uid,
+    required this.player1Score,
+    required this.player2Score,
+    required this.status,
+    required this.targetScore,
+    this.winner,
+  });
+
+  factory RemoteCompetitiveSession.fromMap(Map<String, dynamic> map) =>
+      RemoteCompetitiveSession(
+        player1Uid: map['player1Uid'] as String? ?? '',
+        player2Uid: map['player2Uid'] as String?,
+        player1Score: map['player1Score'] as int? ?? 0,
+        player2Score: map['player2Score'] as int? ?? 0,
+        status: map['status'] as String? ?? 'waiting',
+        targetScore: map['targetScore'] as int? ?? 10,
+        winner: map['winner'] as String?,
+      );
+
+  int scoreFor(String uid) =>
+      uid == player1Uid ? player1Score : player2Score;
+
+  int partnerScore(String uid) =>
+      uid == player1Uid ? player2Score : player1Score;
+}
+
+class RemoteCoopSession {
+  final String voyantUid;
+  final String devineurUid;
+  final String currentWord;
+  final int teamScore;
+  final int wordsGuessed;
+  final int targetScore;
+  final String status; // playing | finished
+  final bool pendingNewWord;
+
+  RemoteCoopSession({
+    required this.voyantUid,
+    required this.devineurUid,
+    required this.currentWord,
+    required this.teamScore,
+    required this.wordsGuessed,
+    required this.targetScore,
+    required this.status,
+    required this.pendingNewWord,
+  });
+
+  factory RemoteCoopSession.fromMap(Map<String, dynamic> map) =>
+      RemoteCoopSession(
+        voyantUid: map['voyantUid'] as String? ?? '',
+        devineurUid: map['devineurUid'] as String? ?? '',
+        currentWord: map['currentWord'] as String? ?? '',
+        teamScore: map['teamScore'] as int? ?? 0,
+        wordsGuessed: map['wordsGuessed'] as int? ?? 0,
+        targetScore: map['targetScore'] as int? ?? 10,
+        status: map['status'] as String? ?? 'playing',
+        pendingNewWord: map['pendingNewWord'] as bool? ?? false,
+      );
+}
+
+class RemoteTimedSession {
+  final String player1Uid;
+  final String? player2Uid;
+  final int player1Score;
+  final int player2Score;
+  final String status; // waiting | playing | finished
+  final DateTime? startTime;
+  final int durationSeconds;
+
+  RemoteTimedSession({
+    required this.player1Uid,
+    this.player2Uid,
+    required this.player1Score,
+    required this.player2Score,
+    required this.status,
+    this.startTime,
+    required this.durationSeconds,
+  });
+
+  factory RemoteTimedSession.fromMap(Map<String, dynamic> map) =>
+      RemoteTimedSession(
+        player1Uid: map['player1Uid'] as String? ?? '',
+        player2Uid: map['player2Uid'] as String?,
+        player1Score: map['player1Score'] as int? ?? 0,
+        player2Score: map['player2Score'] as int? ?? 0,
+        status: map['status'] as String? ?? 'waiting',
+        startTime: (map['startTime'] as Timestamp?)?.toDate(),
+        durationSeconds: map['durationSeconds'] as int? ?? 60,
+      );
+
+  int scoreFor(String uid) =>
+      uid == player1Uid ? player1Score : player2Score;
+
+  int partnerScore(String uid) =>
+      uid == player1Uid ? player2Score : player1Score;
 }

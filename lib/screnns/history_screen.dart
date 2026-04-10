@@ -45,68 +45,79 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(4, 8, 20, 0),
+            child: Row(
               children: [
-                const Text('Historique',
-                    style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark)),
-                const SizedBox(height: 4),
-                const Text('Vos parties jouées',
-                    style: TextStyle(
-                        fontSize: 14, color: AppColors.textMedium)),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 36,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _filters.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (_, i) {
-                      final f = _filters[i];
-                      final active = _filter == f;
-                      return GestureDetector(
-                        onTap: () => setState(() => _filter = f),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: active
-                                ? AppColors.primary
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: active
-                                ? [
-                                    BoxShadow(
-                                        color: AppColors.primary
-                                            .withValues(alpha: 0.3),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 3))
-                                  ]
-                                : null,
-                          ),
-                          child: Text(f,
-                              style: TextStyle(
-                                  color: active
-                                      ? Colors.white
-                                      : AppColors.textMedium,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13)),
-                        ),
-                      );
-                    },
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                      color: AppColors.textDark, size: 20),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                const SizedBox(width: 4),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Historique',
+                        style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textDark)),
+                    Text('Vos parties jouées',
+                        style: TextStyle(
+                            fontSize: 13, color: AppColors.textMedium)),
+                  ],
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _filters.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final f = _filters[i];
+                  final active = _filter == f;
+                  return GestureDetector(
+                    onTap: () => setState(() => _filter = f),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: active ? AppColors.primary : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: active
+                            ? [
+                                BoxShadow(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3))
+                              ]
+                            : null,
+                      ),
+                      child: Text(f,
+                          style: TextStyle(
+                              color:
+                                  active ? Colors.white : AppColors.textMedium,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13)),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -129,7 +140,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         ],
       ),
-    );
+      ));
   }
 }
 

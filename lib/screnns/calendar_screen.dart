@@ -104,6 +104,106 @@ class _CalendarScreenState extends State<CalendarScreen> {
         .delete();
   }
 
+  Future<void> _editEvent(EventModel event) async {
+    if (_coupleId == null) return;
+    final titleCtrl = TextEditingController(text: event.title);
+    final descCtrl = TextEditingController(text: event.description);
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(2))),
+              ),
+              const SizedBox(height: 16),
+              const Text('Modifier le souvenir',
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: titleCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Titre',
+                  filled: true,
+                  fillColor: AppColors.background,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: 'Description (optionnelle)',
+                  filled: true,
+                  fillColor: AppColors.background,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final title = titleCtrl.text.trim();
+                    if (title.isEmpty) return;
+                    await _db
+                        .collection('couples')
+                        .doc(_coupleId)
+                        .collection('calendar_events')
+                        .doc(event.id)
+                        .update({
+                      'title': title,
+                      'description': descCtrl.text.trim(),
+                    });
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Enregistrer',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    titleCtrl.dispose();
+    descCtrl.dispose();
+  }
+
   void _showAddDialog() {
     showModalBottomSheet(
       context: context,
@@ -383,6 +483,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       itemBuilder: (_, i) => _EventCard(
                         event: dayEvents[i],
                         onDelete: () => _deleteEvent(dayEvents[i].id),
+                        onEdit: () => _editEvent(dayEvents[i]),
                       ),
                     ),
             ),
@@ -396,8 +497,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
 class _EventCard extends StatelessWidget {
   final EventModel event;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
-  const _EventCard({required this.event, required this.onDelete});
+  const _EventCard(
+      {required this.event,
+      required this.onDelete,
+      required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -446,9 +551,16 @@ class _EventCard extends StatelessWidget {
             ),
           ),
           IconButton(
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_rounded,
+                color: AppColors.primary, size: 20),
+            tooltip: 'Modifier',
+          ),
+          IconButton(
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline_rounded,
                 color: Colors.red, size: 20),
+            tooltip: 'Supprimer',
           ),
         ],
       ),
