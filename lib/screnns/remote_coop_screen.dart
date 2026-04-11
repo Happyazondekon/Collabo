@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:math';
 import '../utils/app_theme.dart';
 import '../services/couple_service.dart';
+import '../services/local_storage_service.dart';
+import '../models/game_session_model.dart';
 import '../Data/couple_words.dart';
 
 /// Remote Cooperative:
@@ -36,6 +38,7 @@ class _RemoteCoopScreenState extends State<RemoteCoopScreen> {
   RemoteCoopSession? _session;
   bool _initialized = false;
   bool _loading = false;
+  bool _sessionSaved = false;
 
   late final List<String> _wordPool =
       widget.words.isEmpty ? coupleWords : widget.words;
@@ -161,6 +164,16 @@ class _RemoteCoopScreenState extends State<RemoteCoopScreen> {
 
     // Finished
     if (_session!.status == 'finished') {
+      if (!_sessionSaved) {
+        _sessionSaved = true;
+        LocalStorageService().saveSession(GameSessionModel(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          mode: 'cooperatif',
+          teamScore: _session!.teamScore,
+          playedAt: DateTime.now(),
+          wordsGuessed: _session!.wordsGuessed,
+        ));
+      }
       return _CoopResultView(
         teamScore: _session!.teamScore,
         wordsGuessed: _session!.wordsGuessed,

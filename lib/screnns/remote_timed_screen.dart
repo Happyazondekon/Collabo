@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:math';
 import '../utils/app_theme.dart';
 import '../services/couple_service.dart';
+import '../services/local_storage_service.dart';
+import '../models/game_session_model.dart';
 import '../Data/couple_words.dart';
 
 /// Remote Timed: both players race the same 60s timer simultaneously.
@@ -46,6 +48,7 @@ class _RemoteTimedScreenState extends State<RemoteTimedScreen> {
   String _feedback = '';
   bool _feedbackPositive = false;
   bool _gameActive = false;
+  bool _sessionSaved = false;
 
   Timer? _timer;
   int _timeLeft = 60;
@@ -250,7 +253,21 @@ class _RemoteTimedScreenState extends State<RemoteTimedScreen> {
       final partnerFinalScore =
           _session?.partnerScore(widget.myUid) ?? 0;
       final iWon = myFinalScore >= partnerFinalScore;
-
+      if (!_sessionSaved) {
+        _sessionSaved = true;
+        LocalStorageService().saveSession(GameSessionModel(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          mode: 'chrono',
+          player1Score: myFinalScore,
+          player2Score: partnerFinalScore,
+          winner: iWon ? 1 : 2,
+          player1Name: widget.myName,
+          player2Name: widget.partnerName,
+          playedAt: DateTime.now(),
+          wordsGuessed: myFinalScore ~/ 2,
+          duration: const Duration(seconds: 60),
+        ));
+      }
       return _TimedResultView(
         myName: widget.myName,
         partnerName: widget.partnerName,

@@ -120,8 +120,8 @@ class _TimedGameScreenState extends State<TimedGameScreen> {
       _confetti.play();
       _wordsGuessed++;
       setState(() {
-        _score += 5;
-        _feedback = '+5 pts ✨';
+        _score += 2;
+        _feedback = '+2 pts ✨';
         _feedbackPositive = true;
       });
       Future.delayed(const Duration(milliseconds: 400), _pickNewWord);

@@ -957,35 +957,86 @@ class _WordBlanks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final letters = session.word.split('');
+    final letterCount = letters.where((c) => c != ' ').length;
+
+    // Adapt tile size to word length
+    final double tileSize = letterCount <= 6
+        ? 26
+        : letterCount <= 9
+            ? 22
+            : letterCount <= 12
+                ? 18
+                : 14;
+    final double fontSize = tileSize;
+    final double hPadding = letterCount <= 6
+        ? 4
+        : letterCount <= 9
+            ? 3
+            : 2;
+
+    Widget buildTile(String c) {
+      if (c == ' ') return SizedBox(width: tileSize * 0.6);
+      final revealed = session.guessedLetters.contains(c);
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: hPadding),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              revealed ? c : ' ',
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w800,
+                color: revealed ? AppColors.primary : AppColors.textDark,
+              ),
+            ),
+            Container(
+              width: tileSize,
+              height: 3,
+              decoration: BoxDecoration(
+                color: revealed ? AppColors.primary : AppColors.textMedium,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Split into lines of max 8 tiles each for very long words
+    if (letterCount > 12) {
+      final words = session.word.split(' ');
+      final lines = <List<String>>[];
+      var current = <String>[];
+      for (final word in words) {
+        final chars = word.split('');
+        if (current.length + chars.length > 8 && current.isNotEmpty) {
+          lines.add(current);
+          current = [];
+        }
+        current.addAll(chars);
+        current.add(' ');
+      }
+      if (current.isNotEmpty) lines.add(current);
+
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: lines.map((line) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: line.map(buildTile).toList(),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: session.word.split('').map((c) {
-        if (c == ' ') return const SizedBox(width: 16);
-        final revealed = session.guessedLetters.contains(c);
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Column(
-            children: [
-              Text(
-                revealed ? c : ' ',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: revealed ? AppColors.primary : AppColors.textDark,
-                ),
-              ),
-              Container(
-                width: 26,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: revealed ? AppColors.primary : AppColors.textMedium,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
+      children: letters.map(buildTile).toList(),
     );
   }
 }

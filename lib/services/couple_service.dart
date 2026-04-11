@@ -643,6 +643,33 @@ class CoupleService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
+
+  // ── Profile (Future) ─────────────────────────────────────────────
+
+  static Future<UserProfile?> getMyProfile() async {
+    final uid = _myUid;
+    if (uid == null) return null;
+    final snap = await _db.collection('users').doc(uid).get();
+    if (!snap.exists) return null;
+    return UserProfile.fromMap(uid, snap.data()!);
+  }
+
+  // ── Shared Words (synced between partners via couple document) ───
+
+  static Future<void> saveSharedWords(
+      String coupleId, List<String> words) async {
+    await _db.collection('couples').doc(coupleId).set({
+      'sharedWords': words,
+      'sharedWordsUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  static Future<List<String>> getSharedWords(String coupleId) async {
+    final doc = await _db.collection('couples').doc(coupleId).get();
+    final raw = doc.data()?['sharedWords'];
+    if (raw == null) return [];
+    return List<String>.from(raw as List);
+  }
 }
 
 // ─── Crossword session model ───────────────────────────────────────
@@ -1011,8 +1038,6 @@ class RemoteGamesService {
     return ctrl.stream;
   }
 }
-
-// ─── Remote session models ────────────────────────────────────────
 
 class RemoteCompetitiveSession {
   final String player1Uid;

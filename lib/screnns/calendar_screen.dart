@@ -80,6 +80,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return _events[key] ?? [];
   }
 
+  List<EventModel> get _allEventsSorted {
+    final all = _events.values.expand((e) => e).toList();
+    all.sort((a, b) => a.date.compareTo(b.date));
+    return all;
+  }
+
   Future<void> _addEvent() async {
     if (_selectedDay == null || _titleCtrl.text.trim().isEmpty || _coupleId == null) return;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -336,6 +342,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     final dayEvents =
         _selectedDay != null ? _eventsForDay(_selectedDay!) : <EventModel>[];
+    final allEvents = _allEventsSorted;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -431,26 +438,24 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            // Events list header
+            // All souvenirs list header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
                 children: [
-                  const Icon(Icons.event_rounded,
+                  const Icon(Icons.auto_awesome_rounded,
                       color: AppColors.primary, size: 18),
                   const SizedBox(width: 6),
-                  Text(
-                    _selectedDay != null
-                        ? '${_selectedDay!.day}/${_selectedDay!.month}/${_selectedDay!.year}'
-                        : 'Sélectionnez un jour',
-                    style: const TextStyle(
+                  const Text(
+                    'Tous les souvenirs',
+                    style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textDark,
                         fontSize: 15),
                   ),
                   const Spacer(),
-                  if (dayEvents.isNotEmpty)
-                    Text('${dayEvents.length} souvenir(s)',
+                  if (allEvents.isNotEmpty)
+                    Text('${allEvents.length} souvenir(s)',
                         style: const TextStyle(
                             fontSize: 12, color: AppColors.textMedium)),
                 ],
@@ -458,7 +463,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             const SizedBox(height: 10),
             Expanded(
-              child: dayEvents.isEmpty
+              child: allEvents.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -468,12 +473,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               color: AppColors.primary
                                   .withValues(alpha: 0.2)),
                           const SizedBox(height: 8),
-                          const Text('Aucun souvenir ce jour',
+                          const Text('Aucun souvenir pour l\'instant',
                               style: TextStyle(
                                   color: AppColors.textMedium,
                                   fontSize: 14)),
                           const SizedBox(height: 4),
-                          const Text('Appuyez sur + pour en ajouter',
+                          const Text('Sélectionnez un jour et appuyez sur +',
                               style: TextStyle(
                                   color: AppColors.textLight,
                                   fontSize: 12)),
@@ -483,14 +488,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   : ListView.separated(
                       padding:
                           const EdgeInsets.fromLTRB(16, 0, 16, 80),
-                      itemCount: dayEvents.length,
+                      itemCount: allEvents.length,
                       separatorBuilder: (_, __) =>
                           const SizedBox(height: 10),
-                      itemBuilder: (_, i) => _EventCard(
-                        event: dayEvents[i],
-                        onDelete: () => _deleteEvent(dayEvents[i].id),
-                        onEdit: () => _editEvent(dayEvents[i]),
-                      ),
+                      itemBuilder: (_, i) {
+                        final e = allEvents[i];
+                        final isHighlighted = _selectedDay != null &&
+                            isSameDay(e.date, _selectedDay!);
+                        return _EventCard(
+                          event: e,
+                          isHighlighted: isHighlighted,
+                          onDelete: () => _deleteEvent(e.id),
+                          onEdit: () => _editEvent(e),
+                        );
+                      },
                     ),
             ),
           ],
@@ -502,21 +513,31 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
 class _EventCard extends StatelessWidget {
   final EventModel event;
+  final bool isHighlighted;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
 
   const _EventCard(
       {required this.event,
+      this.isHighlighted = false,
       required this.onDelete,
       required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
+    final d = event.date;
+    final dateLabel =
+        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isHighlighted
+            ? AppColors.primary.withValues(alpha: 0.06)
+            : Colors.white,
         borderRadius: BorderRadius.circular(18),
+        border: isHighlighted
+            ? Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.5)
+            : null,
         boxShadow: [
           BoxShadow(
               color: AppColors.primary.withValues(alpha: 0.08),
@@ -541,11 +562,32 @@ class _EventCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(event.title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: AppColors.textDark)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(event.title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: AppColors.textDark)),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        dateLabel,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary),
+                      ),
+                    ),
+                  ],
+                ),
                 if (event.description.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 3),

@@ -34,7 +34,7 @@ class _CooperativeGameScreenState extends State<CooperativeGameScreen> {
   final Random _random = Random();
   int _correctStreak = 0;
   int _wordsGuessed = 0;
-  final int _targetScore = 20;
+  final int _targetScore = 10;
   late List<String> _wordPool;
   String _feedback = '';
   bool _feedbackPositive = false;
@@ -95,8 +95,8 @@ class _CooperativeGameScreenState extends State<CooperativeGameScreen> {
       _correctStreak++;
       _wordsGuessed++;
       setState(() {
-        _teamScore += 5;
-        _feedback = '+5 pts — Excellent ! 🎉';
+        _teamScore += 2;
+        _feedback = '+2 pts — Excellent ! 🎉';
         _feedbackPositive = true;
       });
 

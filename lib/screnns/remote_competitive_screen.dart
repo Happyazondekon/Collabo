@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:math';
 import '../utils/app_theme.dart';
 import '../services/couple_service.dart';
+import '../services/local_storage_service.dart';
+import '../models/game_session_model.dart';
 import '../Data/couple_words.dart';
 
 class RemoteCompetitiveScreen extends StatefulWidget {
@@ -47,6 +49,7 @@ class _RemoteCompetitiveScreenState extends State<RemoteCompetitiveScreen> {
   bool _feedbackPositive = false;
   bool _gameStarted = false;
   bool _finishing = false;
+  bool _sessionSaved = false;
 
   @override
   void initState() {
@@ -147,10 +150,10 @@ class _RemoteCompetitiveScreenState extends State<RemoteCompetitiveScreen> {
     _focusNode.requestFocus();
 
     if (guess == _currentWord.toLowerCase()) {
-      final newScore = _myScore + 5;
+      final newScore = _myScore + 2;
       setState(() {
         _myScore = newScore;
-        _feedback = 'Bravo ! +5 pts ✨';
+        _feedback = 'Bravo ! +2 pts ✨';
         _feedbackPositive = true;
       });
       if (_session != null) {
@@ -208,7 +211,23 @@ class _RemoteCompetitiveScreenState extends State<RemoteCompetitiveScreen> {
     if (status == 'waiting') return _WaitingView(partnerName: widget.partnerName, onCancel: _quit);
 
     if (status == 'finished') {
+      final myScore = _session?.scoreFor(widget.myUid) ?? _myScore;
+      final partnerScore = _session?.partnerScore(widget.myUid) ?? 0;
       final myWon = _session?.winner == widget.myUid;
+      if (!_sessionSaved) {
+        _sessionSaved = true;
+        LocalStorageService().saveSession(GameSessionModel(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          mode: 'competitif',
+          player1Score: myScore,
+          player2Score: partnerScore,
+          winner: myWon ? 1 : 2,
+          player1Name: widget.myName,
+          player2Name: widget.partnerName,
+          playedAt: DateTime.now(),
+          wordsGuessed: myScore ~/ 2,
+        ));
+      }
       return _RemoteResultView(
         myName: widget.myName,
         partnerName: widget.partnerName,

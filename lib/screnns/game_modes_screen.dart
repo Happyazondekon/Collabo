@@ -12,6 +12,7 @@ import 'remote_competitive_screen.dart';
 import 'remote_coop_screen.dart';
 import 'remote_timed_screen.dart';
 import '../models/game_difficulty.dart';
+import '../Data/couple_words.dart';
 
 class GameModesScreen extends StatefulWidget {
   final Color primaryColor;
@@ -40,7 +41,6 @@ class _GameModesScreenState extends State<GameModesScreen> {
   @override
   void initState() {
     super.initState();
-    _loadCustomWords();
     _profileSub = CoupleService.myProfileStream().listen((profile) async {
       if (!mounted) return;
       final name1 = profile?.pseudo?.isNotEmpty == true
@@ -54,6 +54,7 @@ class _GameModesScreenState extends State<GameModesScreen> {
             ? partner!.pseudo!
             : partner?.displayName ?? 'Joueur 2';
       }
+      final prevCoupleId = _coupleId;
       if (mounted) setState(() {
         _player1Name = name1;
         _player2Name = name2;
@@ -61,11 +62,32 @@ class _GameModesScreenState extends State<GameModesScreen> {
         _partnerUid = profile?.partnerUid;
         _myUid = profile?.uid;
       });
+      // If coupleId just became available and words are still empty, try Firestore
+      if (profile?.coupleId != null &&
+          prevCoupleId == null &&
+          (_customWords == null || _customWords!.isEmpty)) {
+        _loadCustomWords(coupleId: profile!.coupleId);
+      }
     });
+    _loadCustomWords();
   }
 
-  Future<void> _loadCustomWords() async {
+  Future<void> _loadCustomWords({String? coupleId}) async {
     final words = await LocalStorageService().getCustomWords();
+    if (words.isNotEmpty) {
+      if (mounted) setState(() { _customWords = words; _loadingWords = false; });
+      return;
+    }
+    // Local is empty — try partner's imported words from Firestore
+    final cid = coupleId ?? _coupleId;
+    if (cid != null) {
+      final sharedWords = await CoupleService.getSharedWords(cid);
+      if (sharedWords.isNotEmpty) {
+        await LocalStorageService().saveCustomWords(sharedWords);
+        if (mounted) setState(() { _customWords = sharedWords; _loadingWords = false; });
+        return;
+      }
+    }
     if (mounted) setState(() { _customWords = words; _loadingWords = false; });
   }
 
@@ -73,6 +95,11 @@ class _GameModesScreenState extends State<GameModesScreen> {
     await Navigator.push(context,
         MaterialPageRoute(builder: (_) => const WhatsAppUploadScreen()));
     // Reload words when coming back
+    _loadCustomWords();
+  }
+
+  Future<void> _useDefaultWords() async {
+    await LocalStorageService().saveCustomWords(defaultCoupleWords);
     _loadCustomWords();
   }
 
@@ -94,7 +121,10 @@ class _GameModesScreenState extends State<GameModesScreen> {
 
     // No custom words yet → onboarding screen
     if (_customWords == null || _customWords!.isEmpty) {
-      return _UploadPromptScreen(onUpload: _goToUpload);
+      return _UploadPromptScreen(
+        onUpload: _goToUpload,
+        onUseDefault: _useDefaultWords,
+      );
     }
 
     final words = _customWords!;
@@ -462,7 +492,8 @@ class _PlayOptionTile extends StatelessWidget {
 
 class _UploadPromptScreen extends StatelessWidget {
   final VoidCallback onUpload;
-  const _UploadPromptScreen({required this.onUpload});
+  final VoidCallback onUseDefault;
+  const _UploadPromptScreen({required this.onUpload, required this.onUseDefault});
 
   @override
   Widget build(BuildContext context) {
@@ -551,6 +582,27 @@ class _UploadPromptScreen extends StatelessWidget {
                   shadowColor:
                       const Color(0xFF25D366).withValues(alpha: 0.4),
                 ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: onUseDefault,
+                icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+                label: const Text('Jouer avec des mots proposés',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary, width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Vous pourrez importer vos mots à tout moment',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: AppColors.textMedium),
               ),
               const Spacer(flex: 3),
             ],

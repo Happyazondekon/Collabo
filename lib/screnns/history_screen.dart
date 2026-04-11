@@ -199,6 +199,15 @@ class _SessionCard extends StatelessWidget {
     }
   }
 
+  String get _winnerName {
+    if (session.winner == 1) {
+      return session.player1Name ?? 'Joueur 1';
+    } else if (session.winner == 2) {
+      return session.player2Name ?? 'Joueur 2';
+    }
+    return 'Égalité';
+  }
+
   @override
   Widget build(BuildContext context) {
     final color = _modeColor;
@@ -261,7 +270,8 @@ class _SessionCard extends StatelessWidget {
                           fontSize: 16,
                           color: AppColors.textDark)),
                   const SizedBox(height: 2),
-                  Text('Joueur ${session.winner} gagne',
+                  Text(
+                      _winnerName + ' gagne',
                       style: TextStyle(
                           fontSize: 11,
                           color: color,

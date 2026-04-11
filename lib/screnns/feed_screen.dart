@@ -160,7 +160,7 @@ class _PostCard extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => _PostOptionsSheet(post: post, myUid: myUid),
+      builder: (_) => _PostOptionsSheet(post: post, myUid: myUid, parentContext: context),
     );
   }
 
@@ -707,7 +707,8 @@ class _RepostSheetState extends State<_RepostSheet> {
 class _PostOptionsSheet extends StatelessWidget {
   final FeedPost post;
   final String myUid;
-  const _PostOptionsSheet({required this.post, required this.myUid});
+  final BuildContext parentContext;
+  const _PostOptionsSheet({required this.post, required this.myUid, required this.parentContext});
 
   @override
   Widget build(BuildContext context) {
@@ -748,7 +749,7 @@ class _PostOptionsSheet extends StatelessWidget {
               color: Colors.orange.shade700,
               onTap: () {
                 Navigator.pop(context);
-                _showReportDialog(context);
+                _showReportDialog(parentContext);
               },
             ),
           ],

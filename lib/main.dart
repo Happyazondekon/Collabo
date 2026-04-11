@@ -1,14 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'models/user_model.dart';
 import 'services/auth_service.dart';
+import 'services/fcm_service.dart';
 import 'services/lock_service.dart';
 import 'services/notification_service.dart';
 import 'auth/auth_wrapper.dart';
 import 'screnns/app_lock_screen.dart';
 import 'utils/app_theme.dart';
+
+/// Handler exécuté dans un isolate séparé quand l'app est FERMÉE ou en arrière-plan.
+/// Doit être une fonction top-level (pas une méthode de classe).
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  // Les notifications FCM avec un champ `notification` s'affichent
+  // automatiquement par le système. Ici on peut logguer ou traiter data-only.
+  debugPrint('📬 Background FCM: ${message.messageId}');
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,8 +35,14 @@ void main() async {
 
   await Firebase.initializeApp();
 
+  // Enregistre le handler de messages en arrière-plan / app fermée
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   // Initialise le service de notifications locales
   await CollaboNotificationService().initialize();
+
+  // Initialise Firebase Cloud Messaging (token + listeners)
+  await FcmService().initialize();
 
   runApp(const CollaboApp());
 }

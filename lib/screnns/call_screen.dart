@@ -6,10 +6,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/call_service.dart';
 import '../services/conversation_service.dart';
 import '../services/notification_service.dart';
 import '../utils/app_theme.dart';
+import '../config/app_secrets.dart';
+
+
+final _ringtonePlayer = FlutterRingtonePlayer();
 
 // ─── IncomingCallPage ─────────────────────────────────────────────────────────
 
@@ -42,6 +47,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   @override
   void initState() {
     super.initState();
+    _ringtonePlayer.playRingtone(looping: true, volume: 1.0, asAlarm: true);
     // Auto-dismiss if the caller hangs up before the receiver answers.
     _statusSub = CallService.callStream(widget.callId).listen((snap) {
       final data = snap.data() as Map<String, dynamic>?;
@@ -54,6 +60,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
 
   @override
   void dispose() {
+    _ringtonePlayer.stop();
     _statusSub?.cancel();
     super.dispose();
   }
@@ -61,6 +68,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
   void _dismiss() {
     if (_dismissed || !mounted) return;
     _dismissed = true;
+    _ringtonePlayer.stop();
     // Log missed call: caller ended before receiver answered
     if (widget.conversationId != null) {
       ConversationService.sendCallMessage(
@@ -150,6 +158,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                       color: Colors.red.shade400,
                       onTap: () async {
                         _dismissed = true;
+                        _ringtonePlayer.stop();
                         await CallService.setStatus(
                             widget.callId, 'declined');
                         // Log as missed call when explicitly declined
@@ -171,6 +180,7 @@ class _IncomingCallPageState extends State<IncomingCallPage> {
                       color: Colors.green.shade500,
                       onTap: () {
                         _dismissed = true;
+                        _ringtonePlayer.stop();
                         Navigator.of(context).pushReplacement(
                           MaterialPageRoute(
                             builder: (_) => CallScreen(
@@ -241,16 +251,44 @@ class _CallScreenState extends State<CallScreen> {
   int _seconds = 0;
   bool _initialized = false;
 
+  // ICE candidate buffering (prevents addCandidate before setRemoteDescription)
+  bool _remoteDescSet = false;
+  final List<RTCIceCandidate> _pendingCandidates = [];
+
   // Subscriptions
   Timer? _timer;
+  Timer? _connectionTimer;
+  Timer? _disconnectGraceTimer;
+  Timer? _ringbackTimer;
   StreamSubscription? _callSub;
   StreamSubscription? _candidateSub;
 
+  // Error / info banner
+  String? _errorBanner;
+
   static const Map<String, dynamic> _rtcConfig = {
     'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-      {'urls': 'stun:stun2.l.google.com:19302'},
+      {'urls': 'stun:stun.relay.metered.ca:80'},
+      {
+        'urls': 'turn:standard.relay.metered.ca:80',
+        'username': turnUsername,
+        'credential': turnCredential,
+      },
+      {
+        'urls': 'turn:standard.relay.metered.ca:80?transport=tcp',
+        'username': turnUsername,
+        'credential': turnCredential,
+      },
+      {
+        'urls': 'turn:standard.relay.metered.ca:443',
+        'username': turnUsername,
+        'credential': turnCredential,
+      },
+      {
+        'urls': 'turns:standard.relay.metered.ca:443?transport=tcp',
+        'username': turnUsername,
+        'credential': turnCredential,
+      },
     ],
     'iceCandidatePoolSize': 10,
   };
@@ -265,24 +303,40 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _init() async {
-    await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
-    await _requestPermissions();
-    await _getLocalStream();
-    await _createPeerConnection();
-    if (!mounted) return;
-    setState(() => _initialized = true);
-    if (widget.isCaller) {
-      await _createOffer();
-    } else {
-      await _createAnswer();
+    try {
+      await _localRenderer.initialize();
+      await _remoteRenderer.initialize();
+      final permOk = await _requestPermissions();
+      await _getLocalStream();
+      await _createPeerConnection();
+      if (!mounted) return;
+      setState(() => _initialized = true);
+      if (!permOk) return;
+      if (widget.isCaller) {
+        await _createOffer();
+      } else {
+        await _createAnswer();
+      }
+      _listenRemoteCandidates();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _initialized = true);
+        _showBanner('Une erreur inattendue est survenue. Désolé 😔');
+        Future.delayed(
+          const Duration(seconds: 3),
+          () => _hangUp(notify: false),
+        );
+      }
     }
-    _listenRemoteCandidates();
   }
 
   @override
   void dispose() {
+    _ringtonePlayer.stop();
     _timer?.cancel();
+    _connectionTimer?.cancel();
+    _disconnectGraceTimer?.cancel();
+    _ringbackTimer?.cancel();
     _callSub?.cancel();
     _candidateSub?.cancel();
     _localRenderer.dispose();
@@ -293,13 +347,36 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 
+  // ── ICE buffering ────────────────────────────────────────────────────────────
+
+  Future<void> _applyRemoteDescription(RTCSessionDescription desc) async {
+    await _pc!.setRemoteDescription(desc);
+    _remoteDescSet = true;
+    for (final c in _pendingCandidates) {
+      await _pc?.addCandidate(c);
+    }
+    _pendingCandidates.clear();
+  }
+
   // ── WebRTC setup ────────────────────────────────────────────────────────────
 
-  Future<void> _requestPermissions() async {
+  Future<bool> _requestPermissions() async {
     final perms = widget.isVideo
         ? [Permission.camera, Permission.microphone]
         : [Permission.microphone];
-    await perms.request();
+    final results = await perms.request();
+    final denied = results.values.any((s) =>
+        s == PermissionStatus.denied ||
+        s == PermissionStatus.permanentlyDenied);
+    if (denied) {
+      _showBanner(
+        widget.isVideo
+            ? 'Accès à la caméra ou au micro refusé. Vérifiez les paramètres de l\'application.'
+            : 'Accès au micro refusé. Vérifiez les paramètres de l\'application.',
+      );
+      return false;
+    }
+    return true;
   }
 
   Future<void> _getLocalStream() async {
@@ -314,7 +391,13 @@ class _CallScreenState extends State<CallScreen> {
         _localRenderer.srcObject = _localStream;
         setState(() {});
       }
-    } catch (_) {}
+    } catch (_) {
+      _showBanner(
+        widget.isVideo
+            ? 'Impossible d\'accéder à la caméra ou au micro. Vérifiez les permissions.'
+            : 'Impossible d\'accéder au micro. Vérifiez les permissions.',
+      );
+    }
   }
 
   Future<void> _createPeerConnection() async {
@@ -349,15 +432,35 @@ class _CallScreenState extends State<CallScreen> {
     // Connection state changes
     _pc?.onConnectionState = (state) {
       if (!mounted) return;
-      if (state ==
-          RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-        setState(() => _status = _CallStatus.connected);
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _ringtonePlayer.stop();
+        _connectionTimer?.cancel();
+        _disconnectGraceTimer?.cancel();
+        setState(() {
+          _status = _CallStatus.connected;
+          _errorBanner = null;
+        });
         _startTimer();
       } else if (state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-          state ==
-              RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-        _hangUp(notify: false);
+          RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        _showBanner('Connexion instable… Tentative de reconnexion en cours.');
+        _disconnectGraceTimer?.cancel();
+        _disconnectGraceTimer = Timer(const Duration(seconds: 8), () {
+          if (mounted) {
+            _showBanner('La connexion a été perdue. Désolé 😢');
+            Future.delayed(
+              const Duration(seconds: 2),
+              () => _hangUp(notify: true),
+            );
+          }
+        });
+      } else if (state ==
+          RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _showBanner('La connexion a échoué. Désolé 😔');
+        Future.delayed(
+          const Duration(seconds: 2),
+          () => _hangUp(notify: true),
+        );
       }
     };
   }
@@ -366,12 +469,32 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _createOffer() async {
     if (_pc == null || !mounted) return;
+    _ringtonePlayer.playRingtone(looping: true, volume: 0.5, asAlarm: true);
     setState(() => _status = _CallStatus.connecting);
+
+    // Ringback : bip court toutes les 4 secondes
+    void _doRingback() => _ringtonePlayer.playNotification(
+        volume: 0.8, looping: false, asAlarm: true);
+    _doRingback();
+    _ringbackTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (_status != _CallStatus.connected) _doRingback();
+    });
+    await Future.delayed(
+        const Duration(milliseconds: 200)); // laisse le ring prendre le focus
+    _ringtonePlayer.stop(); // coupe le playRingtone, ringback prend le relais
     final offer = await _pc!.createOffer();
     await _pc!.setLocalDescription(offer);
     await CallService.setOffer(widget.callId, {
       'sdp': offer.sdp,
       'type': offer.type,
+    });
+    // Timeout si le partenaire ne répond pas dans les 45s
+    _connectionTimer = Timer(const Duration(seconds: 45), () {
+      if (mounted && _status != _CallStatus.connected) {
+        _ringtonePlayer.stop();
+        _showBanner('${widget.partnerName} ne répond pas. Désolé 😔');
+        Future.delayed(const Duration(seconds: 2), () => _hangUp());
+      }
     });
     // Listen for answer + remote hang-up
     _callSub =
@@ -379,7 +502,15 @@ class _CallScreenState extends State<CallScreen> {
       final data = snap.data() as Map<String, dynamic>?;
       if (data == null) return;
       final status = data['status'] as String?;
-      if (status == 'ended' || status == 'declined') {
+      if (status == 'declined') {
+        _connectionTimer?.cancel();
+        _ringtonePlayer.stop();
+        _showBanner('${widget.partnerName} a refusé l\'appel.');
+        Future.delayed(const Duration(seconds: 2), _endLocally);
+        return;
+      }
+      if (status == 'ended') {
+        _connectionTimer?.cancel();
         _endLocally();
         return;
       }
@@ -388,7 +519,7 @@ class _CallScreenState extends State<CallScreen> {
               RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
         final answer = RTCSessionDescription(
             data['answer']['sdp'], data['answer']['type']);
-        await _pc?.setRemoteDescription(answer);
+        await _applyRemoteDescription(answer);
       }
     });
   }
@@ -416,13 +547,16 @@ class _CallScreenState extends State<CallScreen> {
     await waitSub.cancel();
 
     if (offerData == null || !mounted) {
-      _endLocally();
+      if (mounted) {
+        _showBanner('L\'appel a été annulé avant la connexion.');
+        Future.delayed(const Duration(seconds: 2), _endLocally);
+      }
       return;
     }
 
     final offer =
         RTCSessionDescription(offerData['sdp'], offerData['type']);
-    await _pc!.setRemoteDescription(offer);
+    await _applyRemoteDescription(offer);
     final answer = await _pc!.createAnswer();
     await _pc!.setLocalDescription(answer);
     await CallService.setAnswer(widget.callId, {
@@ -447,11 +581,16 @@ class _CallScreenState extends State<CallScreen> {
       for (final change in snap.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>;
-          _pc?.addCandidate(RTCIceCandidate(
+          final candidate = RTCIceCandidate(
             data['candidate'],
             data['sdpMid'],
             data['sdpMLineIndex'],
-          ));
+          );
+          if (_remoteDescSet) {
+            _pc?.addCandidate(candidate);
+          } else {
+            _pendingCandidates.add(candidate);
+          }
         }
       }
     });
@@ -490,6 +629,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _endLocally() {
+    _ringtonePlayer.stop();
+    _ringbackTimer?.cancel();
     _timer?.cancel();
     _callSub?.cancel();
     _candidateSub?.cancel();
@@ -555,7 +696,55 @@ class _CallScreenState extends State<CallScreen> {
             _buildLocalPreview(),
           _buildTopBar(),
           _buildControls(),
+          if (_errorBanner != null) _buildErrorBanner(),
         ],
+      ),
+    );
+  }
+
+  // ── Banner ──────────────────────────────────────────────────────────────────
+
+  void _showBanner(String message) {
+    if (!mounted) return;
+    setState(() => _errorBanner = message);
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && _errorBanner == message) {
+        setState(() => _errorBanner = null);
+      }
+    });
+  }
+
+  Widget _buildErrorBanner() {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 12,
+      left: 20,
+      right: 20,
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xDD1A1A2E),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color: Colors.orangeAccent.withValues(alpha: 0.6)),
+          boxShadow: const [
+            BoxShadow(color: Colors.black38, blurRadius: 12)
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded,
+                color: Colors.orangeAccent, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _errorBanner!,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 13, height: 1.4),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
@@ -63,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     CoupleService.ensureProfileExists();
+    _checkPendingWarning();
     _inviteSub = CoupleService.pendingInvitesStream().listen((list) {
       if (!mounted) return;
       final n = list.length;
@@ -131,6 +133,41 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToTab(int index) => setState(() => _currentNavIndex = index);
+
+  Future<void> _checkPendingWarning() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final warning = doc.data()?['pendingWarning'] as String?;
+    if (warning == null || warning.isEmpty) return;
+    // Effacer l'avertissement pour ne pas le réafficher
+    await FirebaseFirestore.instance.collection('users').doc(uid).update({'pendingWarning': FieldValue.delete()});
+    if (!mounted) return;
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700, size: 26),
+            const SizedBox(width: 10),
+            const Text('Avertissement', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          ],
+        ),
+        content: Text(warning, style: const TextStyle(fontSize: 14, height: 1.5)),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade700),
+            child: const Text('J\'ai compris'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _listenIncomingCalls() {
     _incomingCallSub = CallService.incomingCallStream().listen((call) {

@@ -42,7 +42,7 @@ class _GameScreenState extends State<GameScreen>
   final List<String> _usedWords = [];
   final Random _random = Random();
   int _wordsGuessed = 0;
-  final int _targetScore = 19;
+  final int _targetScore = 10;
   late List<String> _wordPool;
   String _hiddenWord = '';
 
@@ -106,12 +106,12 @@ class _GameScreenState extends State<GameScreen>
     if (correct) {
       setState(() {
         _wordsGuessed++;
-        _feedback = 'Bravo ! +5 pts ✨';
+        _feedback = 'Bravo ! +2 pts ✨';
         _feedbackPositive = true;
         if (_currentPlayer == 1) {
-          _player1Score += 5;
+          _player1Score += 2;
         } else {
-          _player2Score += 5;
+          _player2Score += 2;
         }
       });
 
@@ -148,6 +148,8 @@ class _GameScreenState extends State<GameScreen>
       player1Score: _player1Score,
       player2Score: _player2Score,
       winner: winner,
+      player1Name: widget.player1Name,
+      player2Name: widget.player2Name,
       playedAt: DateTime.now(),
       wordsGuessed: _wordsGuessed,
       totalWords: _wordsGuessed,

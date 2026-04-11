@@ -41,3 +41,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# CMake / NDK build cache (generated, not source)
+android/app/.cxx/
+
+# Secrets — ne jamais commiter
+lib/config/app_secrets.dart

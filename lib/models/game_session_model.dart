@@ -5,6 +5,8 @@ class GameSessionModel {
   final int player2Score;
   final int? teamScore; // for coop/chrono
   final int? winner; // 1 or 2, null for coop
+  final String? player1Name;
+  final String? player2Name;
   final DateTime playedAt;
   final int wordsGuessed;
   final int totalWords;
@@ -17,6 +19,8 @@ class GameSessionModel {
     this.player2Score = 0,
     this.teamScore,
     this.winner,
+    this.player1Name,
+    this.player2Name,
     required this.playedAt,
     this.wordsGuessed = 0,
     this.totalWords = 0,
@@ -40,6 +44,8 @@ class GameSessionModel {
     'player2Score': player2Score,
     'teamScore': teamScore,
     'winner': winner,
+    'player1Name': player1Name,
+    'player2Name': player2Name,
     'playedAt': playedAt.toIso8601String(),
     'wordsGuessed': wordsGuessed,
     'totalWords': totalWords,
@@ -53,6 +59,8 @@ class GameSessionModel {
     player2Score: json['player2Score'] as int? ?? 0,
     teamScore: json['teamScore'] as int?,
     winner: json['winner'] as int?,
+    player1Name: json['player1Name'] as String?,
+    player2Name: json['player2Name'] as String?,
     playedAt: DateTime.parse(json['playedAt'] as String),
     wordsGuessed: json['wordsGuessed'] as int? ?? 0,
     totalWords: json['totalWords'] as int? ?? 0,

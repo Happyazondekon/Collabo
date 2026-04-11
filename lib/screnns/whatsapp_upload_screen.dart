@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import '../services/whatsapp_parser_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/couple_service.dart';
 import '../utils/app_theme.dart';
 
 class WhatsAppUploadScreen extends StatefulWidget {
@@ -79,6 +80,11 @@ class _WhatsAppUploadScreenState extends State<WhatsAppUploadScreen> {
     await LocalStorageService().saveCustomWords(_words);
     await LocalStorageService().incrementStat('whatsapp_imported');
     await LocalStorageService().checkAndUpdateAchievements();
+    // Sync to Firestore so the partner can play without importing
+    final profile = await CoupleService.getMyProfile();
+    if (profile?.coupleId != null) {
+      await CoupleService.saveSharedWords(profile!.coupleId!, _words);
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
